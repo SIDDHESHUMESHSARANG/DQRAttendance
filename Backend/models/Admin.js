@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const adminSchema = new mongoose.Schema(
@@ -5,26 +6,29 @@ const adminSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
+
     email: {
       type: String,
       required: true,
       unique: true,
       lowercase: true,
       trim: true,
-      match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
     },
+
     password: {
       type: String,
       required: true,
-      select: false
+      select: false,
     },
+
     role: {
       type: String,
       default: "admin",
-      immutable: true
-    }
+      immutable: true,
+    },
   },
   { timestamps: true }
 );
