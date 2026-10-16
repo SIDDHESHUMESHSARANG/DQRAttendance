@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "node --watch server.js"
   },
   "keywords": [],
   "author": "",
@@ -17,9 +17,8 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.0",
-    "nodemailer": "^10.0.16"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.14"
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.16",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
