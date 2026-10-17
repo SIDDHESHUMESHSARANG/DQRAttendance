@@ -1,5 +1,10 @@
 import XLSX from "xlsx";
 import Professor from "../models/Professor.js";
+import PendingProfessorRegistration from "../models/PendingProfessorRegistration.js";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import jwt from "jsonwebtoken";
+import { sendProfessorRegistrationOTP } from "../utils/emailService.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -22,10 +27,47 @@ const normalizeList = (value) => {
     return [];
 };
 
-// API 1: Add Professor
+// OTP ko securely hash karna
+const hashOTP = (otp) =>
+    crypto
+        .createHmac("sha256", process.env.OTP_SECRET)
+        .update(otp)
+        .digest("hex");
+
+// OTP hashes ko timing-safe way mein compare karna
+const safeCompare = (a, b) => {
+    const bufferA = Buffer.from(a, "hex");
+    const bufferB = Buffer.from(b, "hex");
+
+    return (
+        bufferA.length === bufferB.length &&
+        crypto.timingSafeEqual(bufferA, bufferB)
+    );
+};
+
+// Safe Professor response: password kabhi return nahi hoga
+const safeProfessor = (professor) => ({
+    id: professor._id,
+    name: professor.name,
+    email: professor.email,
+    subjects: professor.subjects,
+    assignedClasses: professor.assignedClasses,
+    isRegistered: professor.isRegistered,
+    isActive: professor.isActive,
+    createdAt: professor.createdAt,
+    updatedAt: professor.updatedAt,
+});
+
+// API 1: Add Professor (Admin)
 export const addProfessor = async (req, res) => {
     try {
-        const { name, email, subjects, assignedClasses, class: classValue } = req.body;
+        const {
+            name,
+            email,
+            subjects,
+            assignedClasses,
+            class: classValue,
+        } = req.body;
 
         if (
             typeof name !== "string" ||
@@ -78,19 +120,16 @@ export const addProfessor = async (req, res) => {
             });
         }
 
-        const professorSubjects = normalizeList(subjects);
-        const professorClasses = normalizeList(classesInput);
-
         const professor = await Professor.create({
             name: name.trim(),
             email: normalizedEmail,
-            subjects: professorSubjects,
-            assignedClasses: professorClasses,
+            subjects: normalizeList(subjects),
+            assignedClasses: normalizeList(classesInput),
         });
 
         return res.status(201).json({
             message: "Professor added successfully",
-            professor,
+            professor: safeProfessor(professor),
         });
     } catch (error) {
         if (error.code === 11000) {
@@ -116,7 +155,7 @@ export const getProfessors = async (req, res) => {
 
         return res.status(200).json({
             count: professors.length,
-            professors,
+            professors: professors.map(safeProfessor),
         });
     } catch (error) {
         console.error("Get professors error:", error.message);
@@ -127,7 +166,7 @@ export const getProfessors = async (req, res) => {
     }
 };
 
-// API 3: Search Professors by Name, Email, or Subject
+// API 3: Search Professors
 export const searchProfessors = async (req, res) => {
     try {
         const { search } = req.query;
@@ -138,7 +177,8 @@ export const searchProfessors = async (req, res) => {
             });
         }
 
-        const searchText = search.trim();
+        // Escape regex special characters from user input
+        const searchText = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
         const professors = await Professor.find({
             $or: [
@@ -153,7 +193,7 @@ export const searchProfessors = async (req, res) => {
 
         return res.status(200).json({
             count: professors.length,
-            professors,
+            professors: professors.map(safeProfessor),
         });
     } catch (error) {
         console.error("Search professors error:", error.message);
@@ -209,6 +249,13 @@ export const updateProfessor = async (req, res) => {
                 });
             }
 
+            // Registered account ka email change hone par OTP identity break ho sakti hai.
+            if (professor.isRegistered && normalizedEmail !== professor.email) {
+                return res.status(400).json({
+                    message: "Registered Professor email cannot be changed here",
+                });
+            }
+
             const existingProfessor = await Professor.findOne({
                 email: normalizedEmail,
                 _id: { $ne: id },
@@ -253,7 +300,7 @@ export const updateProfessor = async (req, res) => {
 
         return res.status(200).json({
             message: "Professor updated successfully",
-            professor,
+            professor: safeProfessor(professor),
         });
     } catch (error) {
         if (error.code === 11000) {
@@ -300,7 +347,7 @@ export const deactivateProfessor = async (req, res) => {
 
         return res.status(200).json({
             message: "Professor deactivated successfully",
-            professor,
+            professor: safeProfessor(professor),
         });
     } catch (error) {
         console.error("Deactivate professor error:", error.message);
@@ -341,7 +388,7 @@ export const reactivateProfessor = async (req, res) => {
 
         return res.status(200).json({
             message: "Professor reactivated successfully",
-            professor,
+            professor: safeProfessor(professor),
         });
     } catch (error) {
         console.error("Reactivate professor error:", error.message);
@@ -461,8 +508,6 @@ export const bulkUploadProfessors = async (req, res) => {
                 return;
             }
 
-            seenEmails.add(email);
-
             const subjects = normalizeList(subjectsText);
             const assignedClasses = normalizeList(classesText);
 
@@ -474,6 +519,8 @@ export const bulkUploadProfessors = async (req, res) => {
                 });
                 return;
             }
+
+            seenEmails.add(email);
 
             validRows.push({
                 row: rowNumber,
@@ -558,6 +605,354 @@ export const bulkUploadProfessors = async (req, res) => {
 
         return res.status(500).json({
             message: "Server error while uploading professors",
+        });
+    }
+};
+
+// API 8: Send Professor Registration OTP
+export const sendProfessorOTP = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (typeof email !== "string" || !email.trim()) {
+            return res.status(400).json({
+                message: "Email is required",
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        if (!emailRegex.test(normalizedEmail)) {
+            return res.status(400).json({
+                message: "Invalid email format",
+            });
+        }
+
+        if (!process.env.OTP_SECRET) {
+            return res.status(500).json({
+                message: "OTP configuration is missing",
+            });
+        }
+
+        const professor = await Professor.findOne({
+            email: normalizedEmail,
+        });
+
+        if (!professor) {
+            return res.status(404).json({
+                message: "This email is not registered by the Admin",
+            });
+        }
+
+        if (!professor.isActive) {
+            return res.status(403).json({
+                message: "This Professor account is inactive",
+            });
+        }
+
+        if (professor.isRegistered) {
+            return res.status(409).json({
+                message: "Professor is already registered. Please login.",
+            });
+        }
+
+        const existingPending =
+            await PendingProfessorRegistration.findOne({
+                email: normalizedEmail,
+            });
+
+        if (existingPending) {
+            if (existingPending.expiresAt > new Date()) {
+                return res.status(429).json({
+                    message: "An OTP was already sent. Please wait 3 minutes.",
+                });
+            }
+
+            await PendingProfessorRegistration.deleteOne({
+                _id: existingPending._id,
+            });
+        }
+
+        const otp = crypto.randomInt(100000, 1000000).toString();
+
+        const pending = await PendingProfessorRegistration.create({
+            email: normalizedEmail,
+            otpHash: hashOTP(otp),
+            expiresAt: new Date(Date.now() + 3 * 60 * 1000),
+            attempts: 0,
+        });
+
+        try {
+            await sendProfessorRegistrationOTP(normalizedEmail, otp);
+        } catch (emailError) {
+            await PendingProfessorRegistration.deleteOne({
+                _id: pending._id,
+            });
+
+            console.error("Professor OTP email error:", emailError.message);
+
+            return res.status(502).json({
+                message: "Unable to send OTP email",
+            });
+        }
+
+        return res.status(200).json({
+            message: "OTP sent successfully. It is valid for 3 minutes.",
+            email: normalizedEmail,
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(429).json({
+                message: "An OTP request is already being processed. Please try again shortly.",
+            });
+        }
+
+        console.error("Send Professor OTP error:", error.message);
+
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+};
+
+// API 9: Verify OTP and Complete Professor Registration
+export const verifyProfessorOTP = async (req, res) => {
+    try {
+        const { email, otp, password } = req.body;
+
+        if (
+            typeof email !== "string" ||
+            !email.trim() ||
+            otp === undefined ||
+            password === undefined
+        ) {
+            return res.status(400).json({
+                message: "Email, OTP and password are required",
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        if (!emailRegex.test(normalizedEmail)) {
+            return res.status(400).json({
+                message: "Invalid email format",
+            });
+        }
+
+        if (!/^\d{6}$/.test(String(otp))) {
+            return res.status(400).json({
+                message: "OTP must contain 6 digits",
+            });
+        }
+
+        if (typeof password !== "string" || password.length < 8) {
+            return res.status(400).json({
+                message: "Password must be at least 8 characters",
+            });
+        }
+
+        if (!process.env.OTP_SECRET) {
+            return res.status(500).json({
+                message: "OTP configuration is missing",
+            });
+        }
+
+        const pending = await PendingProfessorRegistration.findOne({
+            email: normalizedEmail,
+        }).select("+otpHash");
+
+        if (!pending) {
+            return res.status(400).json({
+                message: "Registration not found or OTP expired. Please request a new OTP.",
+            });
+        }
+
+        if (pending.expiresAt <= new Date()) {
+            await PendingProfessorRegistration.deleteOne({
+                _id: pending._id,
+            });
+
+            return res.status(400).json({
+                message: "OTP has expired. Please request a new OTP.",
+            });
+        }
+
+        const submittedHash = hashOTP(String(otp));
+
+        if (!safeCompare(submittedHash, pending.otpHash)) {
+            pending.attempts += 1;
+
+            if (pending.attempts >= 5) {
+                await PendingProfessorRegistration.deleteOne({
+                    _id: pending._id,
+                });
+
+                return res.status(429).json({
+                    message: "Too many incorrect OTP attempts. Please request a new OTP.",
+                });
+            }
+
+            await pending.save();
+
+            return res.status(400).json({
+                message: "Incorrect OTP",
+                attemptsRemaining: 5 - pending.attempts,
+            });
+        }
+
+        const professor = await Professor.findOne({
+            email: normalizedEmail,
+        });
+
+        if (!professor) {
+            await PendingProfessorRegistration.deleteOne({
+                _id: pending._id,
+            });
+
+            return res.status(404).json({
+                message: "Professor record not found. Contact the Admin.",
+            });
+        }
+
+        if (!professor.isActive) {
+            await PendingProfessorRegistration.deleteOne({
+                _id: pending._id,
+            });
+
+            return res.status(403).json({
+                message: "This Professor account is inactive",
+            });
+        }
+
+        if (professor.isRegistered) {
+            await PendingProfessorRegistration.deleteOne({
+                _id: pending._id,
+            });
+
+            return res.status(409).json({
+                message: "Professor is already registered. Please login.",
+            });
+        }
+
+        professor.password = await bcrypt.hash(password, 10);
+        professor.isRegistered = true;
+
+        await professor.save();
+
+        await PendingProfessorRegistration.deleteOne({
+            _id: pending._id,
+        });
+
+        return res.status(201).json({
+            message: "Professor registered successfully. You can now login.",
+            professor: {
+                id: professor._id,
+                name: professor.name,
+                email: professor.email,
+            },
+        });
+    } catch (error) {
+        console.error("Verify Professor OTP error:", error.message);
+
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+};
+// API 10: Professor Login
+export const loginProfessor = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // Check required fields
+        if (
+            typeof email !== "string" ||
+            !email.trim() ||
+            typeof password !== "string" ||
+            !password
+        ) {
+            return res.status(400).json({
+                message: "Email and password are required",
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // Validate email
+        if (!emailRegex.test(normalizedEmail)) {
+            return res.status(400).json({
+                message: "Invalid email format",
+            });
+        }
+
+        // Find Professor
+        const professor = await Professor.findOne({
+            email: normalizedEmail,
+        }).select("+password");
+
+        if (!professor) {
+            return res.status(401).json({
+                message: "Invalid email or password",
+            });
+        }
+
+        // Check account status
+        if (!professor.isActive) {
+            return res.status(403).json({
+                message: "Professor account is inactive",
+            });
+        }
+
+        // Check registration
+        if (!professor.isRegistered) {
+            return res.status(403).json({
+                message: "Professor registration is not completed",
+            });
+        }
+
+        // Check password
+        const isPasswordCorrect = await bcrypt.compare(
+            password,
+            professor.password
+        );
+
+        if (!isPasswordCorrect) {
+            return res.status(401).json({
+                message: "Invalid email or password",
+            });
+        }
+
+        // Generate JWT
+        const token = jwt.sign(
+            {
+                id: professor._id,
+                email: professor.email,
+                role: "professor",
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "7d",
+            }
+        );
+
+        return res.status(200).json({
+            message: "Professor login successful",
+            token,
+            professor: {
+                id: professor._id,
+                name: professor.name,
+                email: professor.email,
+                subjects: professor.subjects,
+                assignedClasses: professor.assignedClasses,
+                isRegistered: professor.isRegistered,
+                isActive: professor.isActive,
+            },
+        });
+    } catch (error) {
+        console.error("Professor login error:", error.message);
+
+        return res.status(500).json({
+            message: "Internal server error",
         });
     }
 };

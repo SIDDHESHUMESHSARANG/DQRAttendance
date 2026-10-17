@@ -9,6 +9,9 @@ import {
     deactivateProfessor,
     reactivateProfessor,
     bulkUploadProfessors,
+    sendProfessorOTP,
+    verifyProfessorOTP,
+    loginProfessor,
 } from "../controllers/professorController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -34,7 +37,14 @@ const upload = multer({
     },
 });
 
-// API 1: Add Professor
+// Professor Registration OTP Routes (Public)
+// Step 1: Request OTP
+router.post("/register", sendProfessorOTP);
+
+// Step 2: Verify OTP and set password
+router.post("/verify-otp", verifyProfessorOTP);
+
+// API 1: Add Professor (Admin)
 router.post("/", authMiddleware, addProfessor);
 
 // API 2: Get All Professors
@@ -67,5 +77,5 @@ router.post(
     upload.single("file"),
     bulkUploadProfessors
 );
-
+router.post("/login", loginProfessor);
 export default router;

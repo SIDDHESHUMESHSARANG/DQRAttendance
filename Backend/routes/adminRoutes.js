@@ -1,3 +1,4 @@
+
 import express from "express";
 
 import {
@@ -7,7 +8,9 @@ import {
   logoutAdmin,
 } from "../controllers/adminController.js";
 
-import authMiddleware from "../middleware/authMiddleware.js";
+import authMiddleware, {
+  authorizeRoles,
+} from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -20,16 +23,20 @@ router.post("/verify-otp", verifyAdminOTP);
 // Admin Login
 router.post("/login", loginAdmin);
 
-// Admin Logout
+// Admin Logout - authenticated user can logout
 router.post("/logout", authMiddleware, logoutAdmin);
 
-// Protected Admin Profile
-router.get("/profile", authMiddleware, (req, res) => {
-  res.status(200).json({
-    message: "Admin profile accessed successfully",
-    admin: req.user,
-  });
-});
+// Protected Admin Profile - Admin only
+router.get(
+  "/profile",
+  authMiddleware,
+  authorizeRoles("admin"),
+  (req, res) => {
+    res.status(200).json({
+      message: "Admin profile accessed successfully",
+      admin: req.user,
+    });
+  }
+);
 
 export default router;
-

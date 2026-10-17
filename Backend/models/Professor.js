@@ -16,6 +16,14 @@ const professorSchema = new mongoose.Schema(
             trim: true,
         },
 
+        password: {
+            type: String,
+            required: function () {
+                return this.isRegistered;
+            },
+            select: false,
+        },
+
         subjects: {
             type: [String],
             default: [],
