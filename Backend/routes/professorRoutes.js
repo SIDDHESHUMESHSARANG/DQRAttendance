@@ -14,7 +14,9 @@ import {
     loginProfessor,
 } from "../controllers/professorController.js";
 
-import authMiddleware from "../middleware/authMiddleware.js";
+import authMiddleware, {
+    authorizeRoles,
+} from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -37,45 +39,78 @@ const upload = multer({
     },
 });
 
-// Professor Registration OTP Routes (Public)
-// Step 1: Request OTP
+// ==========================================
+// Public Professor Registration and Login
+// ==========================================
+
+// Step 1: Request registration OTP
 router.post("/register", sendProfessorOTP);
 
 // Step 2: Verify OTP and set password
 router.post("/verify-otp", verifyProfessorOTP);
 
-// API 1: Add Professor (Admin)
-router.post("/", authMiddleware, addProfessor);
+// Professor Login
+router.post("/login", loginProfessor);
 
-// API 2: Get All Professors
-router.get("/", authMiddleware, getProfessors);
+// ==========================================
+// Admin-Only Professor Management APIs
+// ==========================================
 
-// API 3: Search Professors
-router.get("/search", authMiddleware, searchProfessors);
+// Add Professor
+router.post(
+    "/",
+    authMiddleware,
+    authorizeRoles("admin"),
+    addProfessor
+);
 
-// API 4: Update Professor
-router.put("/:id", authMiddleware, updateProfessor);
+// Get All Professors
+router.get(
+    "/",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getProfessors
+);
 
-// API 5: Deactivate Professor
+// Search Professors
+router.get(
+    "/search",
+    authMiddleware,
+    authorizeRoles("admin"),
+    searchProfessors
+);
+
+// Update Professor
+router.put(
+    "/:id",
+    authMiddleware,
+    authorizeRoles("admin"),
+    updateProfessor
+);
+
+// Deactivate Professor
 router.patch(
     "/:id/deactivate",
     authMiddleware,
+    authorizeRoles("admin"),
     deactivateProfessor
 );
 
-// API 6: Reactivate Professor
+// Reactivate Professor
 router.patch(
     "/:id/reactivate",
     authMiddleware,
+    authorizeRoles("admin"),
     reactivateProfessor
 );
 
-// API 7: Bulk Upload Professors
+// Bulk Upload Professors
 router.post(
     "/bulk-upload",
     authMiddleware,
+    authorizeRoles("admin"),
     upload.single("file"),
     bulkUploadProfessors
 );
-router.post("/login", loginProfessor);
+
 export default router;

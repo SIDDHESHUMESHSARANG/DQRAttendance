@@ -1,5 +1,6 @@
 
 import express from "express";
+
 import {
     createLecture,
     getLectures,
@@ -8,6 +9,10 @@ import {
     startLecture,
     stopLecture,
 } from "../controllers/lectureController.js";
+
+import {
+    generateLectureQR,
+} from "../controllers/qrController.js";
 
 import authMiddleware, {
     authorizeRoles,
@@ -61,6 +66,14 @@ router.patch(
     authMiddleware,
     authorizeRoles("professor"),
     stopLecture
+);
+
+// API 7: Professor generates QR for their own ongoing lecture
+router.post(
+    "/:id/qr",
+    authMiddleware,
+    authorizeRoles("professor"),
+    generateLectureQR
 );
 
 export default router;

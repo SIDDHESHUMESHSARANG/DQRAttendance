@@ -4,10 +4,17 @@ import PendingAdminRegistration from "../models/PendingAdminRegistration.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import XLSX from "xlsx";
+import Student from "../models/StudentModel.js";
 import RevokedToken from "../models/RevokedToken.js";
 import { sendAdminOTP } from "../utils/emailService.js";
+import Attendance from "../models/Attendance.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ==================================================
+// COMMON HELPERS
+// ==================================================
 
 const hashOTP = (otp) =>
     crypto
@@ -16,29 +23,103 @@ const hashOTP = (otp) =>
         .digest("hex");
 
 const safeCompare = (a, b) => {
+    if (typeof a !== "string" || typeof b !== "string") {
+        return false;
+    }
+
     const bufferA = Buffer.from(a, "hex");
     const bufferB = Buffer.from(b, "hex");
 
     return (
+        bufferA.length > 0 &&
         bufferA.length === bufferB.length &&
         crypto.timingSafeEqual(bufferA, bufferB)
     );
 };
 
-// Admin Registration: create pending record and send OTP
+const normalizeEmail = (value) =>
+    String(value ?? "").trim().toLowerCase();
+
+const normalizeClass = (value) =>
+    String(value ?? "").trim().toUpperCase();
+
+const formatStudent = (student) => ({
+    id: student._id,
+    name: student.academicDetails.fullName,
+    rollNo: student.academicDetails.rollNo,
+    batch: student.academicDetails.batch,
+    class: student.academicDetails.class,
+    division: student.academicDetails.division,
+    email: student.email,
+    phone: student.phone || "",
+    isActivated: student.isActivated,
+    createdAt: student.createdAt,
+    updatedAt: student.updatedAt,
+});
+
+// Duplicate check: email globally unique; Roll No unique within a class.
+const findStudentDuplicate = async ({
+    email,
+    rollNo,
+    className,
+    excludeId,
+}) => {
+    const exclusion = excludeId ? { _id: { $ne: excludeId } } : {};
+
+    if (email) {
+        const emailDuplicate = await Student.findOne({
+            ...exclusion,
+            email: normalizeEmail(email),
+        });
+
+        if (emailDuplicate) {
+            return {
+                type: "email",
+                student: emailDuplicate,
+            };
+        }
+    }
+
+    if (rollNo !== undefined && className) {
+        const rollDuplicate = await Student.findOne({
+            ...exclusion,
+            "academicDetails.rollNo": Number(rollNo),
+            "academicDetails.class": normalizeClass(className),
+        });
+
+        if (rollDuplicate) {
+            return {
+                type: "rollNo",
+                student: rollDuplicate,
+            };
+        }
+    }
+
+    return null;
+};
+
+// ==================================================
+// ADMIN REGISTRATION - SEND OTP
+// ==================================================
+
 export const registerAdmin = async (req, res) => {
-    let pending;
-
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password } = req.body || {};
 
-        if (!name?.trim() || !email?.trim() || !password) {
+        if (
+            typeof name !== "string" ||
+            !name.trim() ||
+            typeof email !== "string" ||
+            !email.trim() ||
+            typeof password !== "string" ||
+            !password
+        ) {
             return res.status(400).json({
                 message: "All fields are required",
             });
         }
 
-        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedEmail = normalizeEmail(email);
 
         if (!emailRegex.test(normalizedEmail)) {
             return res.status(400).json({
@@ -68,15 +149,15 @@ export const registerAdmin = async (req, res) => {
             });
         }
 
-        const existingPending =
-            await PendingAdminRegistration.findOne({
-                email: normalizedEmail,
-            });
+        const existingPending = await PendingAdminRegistration.findOne({
+            email: normalizedEmail,
+        });
 
         if (existingPending) {
             if (existingPending.expiresAt > new Date()) {
                 return res.status(429).json({
-                    message: "An OTP was already sent. Please wait 3 minutes before trying again.",
+                    message:
+                        "An OTP was already sent. Please wait until it expires.",
                 });
             }
 
@@ -85,14 +166,11 @@ export const registerAdmin = async (req, res) => {
             });
         }
 
-        const otp = crypto
-            .randomInt(100000, 1000000)
-            .toString();
-
+        const otp = crypto.randomInt(100000, 1000000).toString();
         const passwordHash = await bcrypt.hash(password, 10);
         const otpHash = hashOTP(otp);
 
-        pending = await PendingAdminRegistration.create({
+        const pending = await PendingAdminRegistration.create({
             name: name.trim(),
             email: normalizedEmail,
             passwordHash,
@@ -108,10 +186,11 @@ export const registerAdmin = async (req, res) => {
                 _id: pending._id,
             });
 
-            console.error("OTP email error:", emailError.message);
+            console.error("OTP email error:", emailError);
 
             return res.status(502).json({
-                message: "Unable to send OTP email. Please check email configuration.",
+                message:
+                    "Unable to send OTP email. Please check email configuration.",
             });
         }
 
@@ -122,11 +201,12 @@ export const registerAdmin = async (req, res) => {
     } catch (error) {
         if (error.code === 11000) {
             return res.status(409).json({
-                message: "A registration for this email already exists. Please try again shortly.",
+                message:
+                    "A registration for this email already exists. Please try again.",
             });
         }
 
-        console.error("Admin registration error:", error.message);
+        console.error("Admin registration error:", error);
 
         return res.status(500).json({
             message: "Internal server error",
@@ -134,18 +214,27 @@ export const registerAdmin = async (req, res) => {
     }
 };
 
-// Verify OTP and create Admin
+// ==================================================
+// VERIFY OTP AND CREATE ADMIN
+// ==================================================
+
 export const verifyAdminOTP = async (req, res) => {
     try {
-        const { email, otp } = req.body;
+        const { email, otp } = req.body || {};
 
-        if (!email?.trim() || !otp) {
+        if (
+            typeof email !== "string" ||
+            !email.trim() ||
+            otp === undefined ||
+            otp === null ||
+            String(otp).trim() === ""
+        ) {
             return res.status(400).json({
                 message: "Email and OTP are required",
             });
         }
 
-        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedEmail = normalizeEmail(email);
 
         if (!emailRegex.test(normalizedEmail)) {
             return res.status(400).json({
@@ -171,7 +260,8 @@ export const verifyAdminOTP = async (req, res) => {
 
         if (!pending) {
             return res.status(400).json({
-                message: "Registration not found or OTP expired. Please register again.",
+                message:
+                    "Registration not found or OTP expired. Please register again.",
             });
         }
 
@@ -188,7 +278,7 @@ export const verifyAdminOTP = async (req, res) => {
         const submittedHash = hashOTP(String(otp));
 
         if (!safeCompare(submittedHash, pending.otpHash)) {
-            pending.attempts += 1;
+            pending.attempts = (pending.attempts || 0) + 1;
 
             if (pending.attempts >= 5) {
                 await PendingAdminRegistration.deleteOne({
@@ -196,7 +286,8 @@ export const verifyAdminOTP = async (req, res) => {
                 });
 
                 return res.status(429).json({
-                    message: "Too many incorrect OTP attempts. Please register again.",
+                    message:
+                        "Too many incorrect OTP attempts. Please register again.",
                 });
             }
 
@@ -222,7 +313,6 @@ export const verifyAdminOTP = async (req, res) => {
             });
         }
 
-        // Password is already hashed; do not hash it again.
         const admin = await Admin.create({
             name: pending.name,
             email: pending.email,
@@ -243,7 +333,7 @@ export const verifyAdminOTP = async (req, res) => {
             },
         });
     } catch (error) {
-        console.error("OTP verification error:", error.message);
+        console.error("OTP verification error:", error);
 
         return res.status(500).json({
             message: "Internal server error",
@@ -251,22 +341,36 @@ export const verifyAdminOTP = async (req, res) => {
     }
 };
 
-// Admin Login
+// ==================================================
+// ADMIN LOGIN
+// ==================================================
+
 export const loginAdmin = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
 
-        if (!email || !password) {
+        if (
+            typeof email !== "string" ||
+            !email.trim() ||
+            typeof password !== "string" ||
+            !password
+        ) {
             return res.status(400).json({
                 message: "Email and password are required",
             });
         }
 
-        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedEmail = normalizeEmail(email);
 
         if (!emailRegex.test(normalizedEmail)) {
             return res.status(400).json({
                 message: "Invalid email format",
+            });
+        }
+
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                message: "JWT configuration is missing",
             });
         }
 
@@ -303,7 +407,7 @@ export const loginAdmin = async (req, res) => {
             },
         });
     } catch (error) {
-        console.error("Admin login error:", error.message);
+        console.error("Admin login error:", error);
 
         return res.status(500).json({
             message: "Internal server error",
@@ -311,10 +415,28 @@ export const loginAdmin = async (req, res) => {
     }
 };
 
-// Admin Logout
+// ==================================================
+// ADMIN LOGOUT
+// ==================================================
+
 export const logoutAdmin = async (req, res) => {
     try {
-        const token = req.headers.authorization.split(" ")[1];
+        const authorization = req.headers.authorization || "";
+        const parts = authorization.split(" ");
+
+        if (parts.length !== 2 || parts[0] !== "Bearer" || !parts[1]) {
+            return res.status(401).json({
+                message: "Bearer token is required",
+            });
+        }
+
+        if (!req.user?.exp) {
+            return res.status(401).json({
+                message: "Invalid or expired token",
+            });
+        }
+
+        const token = parts[1];
 
         const tokenHash = crypto
             .createHash("sha256")
@@ -336,10 +458,875 @@ export const logoutAdmin = async (req, res) => {
             });
         }
 
-        console.error("Admin logout error:", error.message);
+        console.error("Admin logout error:", error);
 
         return res.status(500).json({
             message: "Internal server error",
+        });
+    }
+};
+
+// ==================================================
+// ADD STUDENT
+// ==================================================
+
+export const addStudent = async (req, res) => {
+    try {
+        const {
+            name,
+            fullName,
+            email,
+            rollNo,
+            batch,
+            class: className,
+            course,
+            division,
+            phone,
+        } = req.body || {};
+
+        const rawName = fullName ?? name;
+        const studentName =
+            typeof rawName === "string" ? rawName.trim() : "";
+
+        const studentClass = normalizeClass(className || course);
+        const normalizedEmail = normalizeEmail(email);
+        const divisionValue =
+            typeof division === "string"
+                ? division.trim().toUpperCase()
+                : "";
+
+        const rollText = String(rollNo ?? "").trim();
+        const parsedRollNo = Number(rollText);
+
+        if (
+            !studentName ||
+            !normalizedEmail ||
+            !rollText ||
+            !studentClass ||
+            !divisionValue
+        ) {
+            return res.status(400).json({
+                message:
+                    "Name, email, roll number, class/course and division are required",
+            });
+        }
+
+        if (!emailRegex.test(normalizedEmail)) {
+            return res.status(400).json({
+                message: "Invalid email format",
+            });
+        }
+
+        if (!Number.isSafeInteger(parsedRollNo) || parsedRollNo <= 0) {
+            return res.status(400).json({
+                message: "Roll number must be a positive whole number",
+            });
+        }
+
+        const duplicate = await findStudentDuplicate({
+            email: normalizedEmail,
+            rollNo: parsedRollNo,
+            className: studentClass,
+        });
+
+        if (duplicate?.type === "email") {
+            return res.status(409).json({
+                message: "A student with this email already exists",
+            });
+        }
+
+        if (duplicate?.type === "rollNo") {
+            return res.status(409).json({
+                message: "This roll number already exists in this class",
+            });
+        }
+
+        const student = await Student.create({
+            email: normalizedEmail,
+            phone: typeof phone === "string" ? phone.trim() : "",
+            isActivated: false,
+            academicDetails: {
+                fullName: studentName,
+                rollNo: parsedRollNo,
+                batch: normalizeClass(batch || studentClass),
+                class: studentClass,
+                division: divisionValue,
+            },
+        });
+
+        return res.status(201).json({
+            message: "Student record created successfully",
+            student: formatStudent(student),
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            const fields = Object.keys(error.keyPattern || {});
+
+            return res.status(409).json({
+                message: fields.includes("email")
+                    ? "A student with this email already exists"
+                    : "Duplicate database value detected. Check StudentModel indexes.",
+            });
+        }
+
+        if (error.name === "ValidationError") {
+            return res.status(400).json({
+                message: error.message,
+            });
+        }
+
+        console.error("Add student error:", error);
+
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+};
+
+// ==================================================
+// GET / SEARCH STUDENTS
+// ==================================================
+
+export const getStudents = async (req, res) => {
+    try {
+        // Accept both ?search= and ?q=
+        const searchValue =
+            typeof req.query.search === "string"
+                ? req.query.search
+                : typeof req.query.q === "string"
+                    ? req.query.q
+                    : "";
+
+        const q = searchValue.trim();
+        const filter = {};
+
+        if (q) {
+            // Escape special regex characters safely
+            const escapedQuery = q.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                "\\$&"
+            );
+
+            const searchRegex = new RegExp(escapedQuery, "i");
+
+            const searchConditions = [
+                { "academicDetails.fullName": searchRegex },
+                { "academicDetails.class": searchRegex },
+                { "academicDetails.batch": searchRegex },
+            ];
+
+            // Search by numeric Roll No
+            if (/^\d+$/.test(q)) {
+                const rollNo = Number(q);
+
+                if (Number.isSafeInteger(rollNo)) {
+                    searchConditions.push({
+                        "academicDetails.rollNo": rollNo,
+                    });
+                }
+            }
+
+            filter.$or = searchConditions;
+        }
+
+        const students = await Student.find(filter)
+            .select(
+                "email phone isActivated academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division createdAt updatedAt"
+            )
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.status(200).json({
+            count: students.length,
+            students: students.map(formatStudent),
+        });
+    } catch (error) {
+        console.error("Get students error:", error);
+
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+};
+
+
+// ==================================================
+// UPDATE STUDENT
+// ==================================================
+
+export const updateStudent = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!/^[a-f\d]{24}$/i.test(id)) {
+            return res.status(400).json({
+                message: "Invalid student ID",
+            });
+        }
+
+        const student = await Student.findById(id);
+
+        if (!student) {
+            return res.status(404).json({
+                message: "Student not found",
+            });
+        }
+
+        const {
+            name,
+            fullName,
+            email,
+            rollNo,
+            batch,
+            class: className,
+            course,
+            division,
+            phone,
+        } = req.body || {};
+
+        const details = student.academicDetails;
+
+        if (fullName !== undefined || name !== undefined) {
+            const updatedName = fullName ?? name;
+
+            if (
+                typeof updatedName !== "string" ||
+                !updatedName.trim()
+            ) {
+                return res.status(400).json({
+                    message: "Student name cannot be empty",
+                });
+            }
+
+            details.fullName = updatedName.trim();
+        }
+
+        if (email !== undefined) {
+            if (typeof email !== "string" || !email.trim()) {
+                return res.status(400).json({
+                    message: "Email cannot be empty",
+                });
+            }
+
+            const normalizedEmail = normalizeEmail(email);
+
+            if (!emailRegex.test(normalizedEmail)) {
+                return res.status(400).json({
+                    message: "Invalid email format",
+                });
+            }
+
+            student.email = normalizedEmail;
+        }
+
+        if (rollNo !== undefined) {
+            const rollText = String(rollNo).trim();
+            const parsedRollNo = Number(rollText);
+
+            if (
+                !rollText ||
+                !Number.isSafeInteger(parsedRollNo) ||
+                parsedRollNo <= 0
+            ) {
+                return res.status(400).json({
+                    message: "Roll number must be a positive whole number",
+                });
+            }
+
+            details.rollNo = parsedRollNo;
+        }
+
+        if (className !== undefined || course !== undefined) {
+            const updatedClass = className ?? course;
+
+            if (
+                typeof updatedClass !== "string" ||
+                !updatedClass.trim()
+            ) {
+                return res.status(400).json({
+                    message: "Class/course cannot be empty",
+                });
+            }
+
+            details.class = normalizeClass(updatedClass);
+        }
+
+        if (batch !== undefined) {
+            if (typeof batch !== "string" || !batch.trim()) {
+                return res.status(400).json({
+                    message: "Batch cannot be empty",
+                });
+            }
+
+            details.batch = normalizeClass(batch);
+        }
+
+        if (division !== undefined) {
+            if (typeof division !== "string" || !division.trim()) {
+                return res.status(400).json({
+                    message: "Division cannot be empty",
+                });
+            }
+
+            details.division = division.trim().toUpperCase();
+        }
+
+        if (phone !== undefined) {
+            if (typeof phone !== "string") {
+                return res.status(400).json({
+                    message: "Phone must be a string",
+                });
+            }
+
+            student.phone = phone.trim();
+        }
+
+        const duplicate = await findStudentDuplicate({
+            email: student.email,
+            rollNo: details.rollNo,
+            className: details.class,
+            excludeId: student._id,
+        });
+
+        if (duplicate?.type === "email") {
+            return res.status(409).json({
+                message: "Another student already uses this email",
+            });
+        }
+
+        if (duplicate?.type === "rollNo") {
+            return res.status(409).json({
+                message: "This roll number already exists in this class",
+            });
+        }
+
+        await student.save();
+
+        return res.status(200).json({
+            message: "Student details updated successfully",
+            student: formatStudent(student),
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({
+                message:
+                    "Duplicate value detected. Check the student database indexes.",
+            });
+        }
+
+        if (error.name === "ValidationError") {
+            return res.status(400).json({
+                message: error.message,
+            });
+        }
+
+        console.error("Update student error:", error);
+
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+};
+
+// ==================================================
+// BULK UPLOAD STUDENTS - CSV / EXCEL
+// ==================================================
+
+export const bulkUploadStudents = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                message: "Please upload a CSV or Excel file",
+            });
+        }
+
+        const workbook = XLSX.read(req.file.buffer, {
+            type: "buffer",
+        });
+
+        const firstSheet =
+            workbook.Sheets[workbook.SheetNames[0]];
+
+        if (!firstSheet) {
+            return res.status(400).json({
+                message: "The uploaded file has no worksheet",
+            });
+        }
+
+        const rows = XLSX.utils.sheet_to_json(firstSheet, {
+            defval: "",
+            raw: false,
+        });
+
+        if (rows.length === 0) {
+            return res.status(400).json({
+                message: "The uploaded file is empty",
+            });
+        }
+
+        if (rows.length > 1000) {
+            return res.status(400).json({
+                message: "Maximum 1000 rows are allowed per upload",
+            });
+        }
+
+        const normalizeHeader = (header) =>
+            String(header)
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+
+        const normalizedRows = rows.map((row) => {
+            const normalized = {};
+
+            for (const [key, value] of Object.entries(row)) {
+                normalized[normalizeHeader(key)] = value;
+            }
+
+            return normalized;
+        });
+
+        const getValue = (row, aliases) => {
+            for (const alias of aliases) {
+                if (row[alias] !== undefined && row[alias] !== null) {
+                    return String(row[alias]).trim();
+                }
+            }
+
+            return "";
+        };
+
+        const headers = Object.keys(normalizedRows[0]);
+
+        const requiredColumns = [
+            {
+                name: "Name",
+                aliases: ["name", "fullname", "studentname"],
+            },
+            {
+                name: "Roll No",
+                aliases: ["rollno", "rollnumber", "roll"],
+            },
+            {
+                name: "Class",
+                aliases: ["class", "course"],
+            },
+            {
+                name: "Division",
+                aliases: ["division", "div"],
+            },
+            {
+                name: "Email",
+                aliases: ["email", "emailid", "emailaddress"],
+            },
+        ];
+
+        const missingColumns = requiredColumns
+            .filter(({ aliases }) =>
+                !aliases.some((alias) => headers.includes(alias))
+            )
+            .map(({ name }) => name);
+
+        if (missingColumns.length > 0) {
+            return res.status(400).json({
+                message: "Required columns are missing",
+                missingColumns,
+            });
+        }
+
+        const seenEmails = new Set();
+        const seenClassRolls = new Set();
+        const validRows = [];
+        const errors = [];
+
+        normalizedRows.forEach((row, index) => {
+            const rowNumber = index + 2;
+
+            const fail = (reason, email = null) => {
+                errors.push({
+                    row: rowNumber,
+                    email,
+                    reason,
+                });
+            };
+
+            // Ignore blank rows in the spreadsheet.
+            const isBlankRow = Object.values(row).every(
+                (value) => String(value ?? "").trim() === ""
+            );
+
+            if (isBlankRow) {
+                return;
+            }
+
+            const name = getValue(row, [
+                "name",
+                "fullname",
+                "studentname",
+            ]);
+
+            const email = normalizeEmail(
+                getValue(row, [
+                    "email",
+                    "emailid",
+                    "emailaddress",
+                ])
+            );
+
+            const rollText = getValue(row, [
+                "rollno",
+                "rollnumber",
+                "roll",
+            ]);
+
+            const className = normalizeClass(
+                getValue(row, ["class", "course"])
+            );
+
+            const division = getValue(row, [
+                "division",
+                "div",
+            ]).toUpperCase();
+
+            const batch =
+                normalizeClass(
+                    getValue(row, ["batch", "batchname"])
+                ) || className;
+
+            const phone = getValue(row, [
+                "phone",
+                "mobile",
+                "mobileno",
+                "phonenumber",
+            ]);
+
+            const rollNo = Number(rollText);
+
+            if (!name || !email || !rollText || !className || !division) {
+                fail(
+                    "Name, email, roll number, class and division are required",
+                    email || null
+                );
+                return;
+            }
+
+            if (!emailRegex.test(email)) {
+                fail("Invalid email address", email);
+                return;
+            }
+
+            if (!Number.isSafeInteger(rollNo) || rollNo <= 0) {
+                fail(
+                    "Roll number must be a positive whole number",
+                    email
+                );
+                return;
+            }
+
+            const classRollKey = `${className}::${rollNo}`;
+
+            if (seenEmails.has(email)) {
+                fail("Duplicate email in uploaded file", email);
+                return;
+            }
+
+            if (seenClassRolls.has(classRollKey)) {
+                fail(
+                    "Duplicate roll number in this class in uploaded file",
+                    email
+                );
+                return;
+            }
+
+            seenEmails.add(email);
+            seenClassRolls.add(classRollKey);
+
+            validRows.push({
+                row: rowNumber,
+                name,
+                email,
+                rollNo,
+                className,
+                batch,
+                division,
+                phone,
+            });
+        });
+
+        const imported = [];
+
+        for (const row of validRows) {
+            const duplicate = await findStudentDuplicate({
+                email: row.email,
+                rollNo: row.rollNo,
+                className: row.className,
+            });
+
+            if (duplicate?.type === "email") {
+                errors.push({
+                    row: row.row,
+                    email: row.email,
+                    reason: "Student email already exists",
+                });
+                continue;
+            }
+
+            if (duplicate?.type === "rollNo") {
+                errors.push({
+                    row: row.row,
+                    email: row.email,
+                    reason:
+                        "This roll number already exists in this class",
+                });
+                continue;
+            }
+
+            try {
+                const student = await Student.create({
+                    email: row.email,
+                    phone: row.phone,
+                    isActivated: false,
+                    academicDetails: {
+                        fullName: row.name,
+                        rollNo: row.rollNo,
+                        batch: row.batch,
+                        class: row.className,
+                        division: row.division,
+                    },
+                });
+
+                imported.push({
+                    row: row.row,
+                    id: student._id,
+                    name: student.academicDetails.fullName,
+                    rollNo: student.academicDetails.rollNo,
+                    class: student.academicDetails.class,
+                    division: student.academicDetails.division,
+                    email: student.email,
+                });
+            } catch (error) {
+                let reason = "Could not save this student";
+
+                if (error.code === 11000) {
+                    const duplicateFields = Object.keys(
+                        error.keyPattern || {}
+                    );
+
+                    if (duplicateFields.includes("email")) {
+                        reason = "Student email already exists";
+                    } else if (
+                        duplicateFields.includes("academicDetails.class") ||
+                        duplicateFields.includes("academicDetails.rollNo")
+                    ) {
+                        reason =
+                            "Duplicate Roll No/class database index";
+                    } else if (
+                        duplicateFields.includes(
+                            "deviceSecurity.deviceUuid"
+                        )
+                    ) {
+                        reason = "Duplicate device UUID";
+                    } else {
+                        reason = `Duplicate value: ${
+                            duplicateFields.join(", ") || "unknown field"
+                        }`;
+                    }
+                } else if (error.name === "ValidationError") {
+                    reason = error.message;
+                }
+
+                console.error(
+                    `Bulk upload row ${row.row} error:`,
+                    error
+                );
+
+                errors.push({
+                    row: row.row,
+                    email: row.email,
+                    reason,
+                });
+            }
+        }
+
+        return res.status(200).json({
+            message: "Student bulk upload processed",
+            totalRows: rows.length,
+            importedCount: imported.length,
+            failedCount: errors.length,
+            imported,
+            errors,
+        });
+    } catch (error) {
+        console.error("Bulk upload students error:", error);
+
+        return res.status(500).json({
+            message: "Unable to process the uploaded file",
+        });
+    }
+};
+
+export const resetStudentTrustedDevice = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!/^[a-f\d]{24}$/i.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid student ID.",
+            });
+        }
+
+        const student = await Student.findById(id);
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: "Student not found.",
+            });
+        }
+
+        // Remove the old trusted device.
+        student.set("deviceSecurity.deviceUuid", undefined);
+        student.set("deviceSecurity.isLocked", false);
+        student.set("deviceSecurity.lastUsedPlatform", "Unknown");
+
+        await student.save();
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "Trusted device reset successfully. The student can register a new device on the next login.",
+        });
+    } catch (error) {
+        console.error("Student device reset failed:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to reset the student's trusted device.",
+        });
+    }
+};
+// ==================================================
+// GET FLAGGED ATTENDANCE PENDING ADMIN REVIEW
+// ==================================================
+
+export const getFlaggedAttendance = async (req, res) => {
+    try {
+        const attendanceRecords = await Attendance.find({
+            status: "flagged",
+            $or: [
+                { verificationStatus: "pending" },
+                { verificationStatus: { $exists: false } },
+            ],
+        })
+            .populate({
+                path: "student",
+                select: "email academicDetails.fullName academicDetails.rollNo academicDetails.class academicDetails.division",
+            })
+            .populate({
+                path: "lecture",
+                select: "subject assignedClass date startTime endTime",
+            })
+            .populate({
+                path: "classroom",
+                select: "name building radiusMeters",
+            })
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            count: attendanceRecords.length,
+            attendance: attendanceRecords,
+        });
+    } catch (error) {
+        console.error("Get flagged attendance error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to fetch flagged attendance.",
+        });
+    }
+};
+
+
+// ==================================================
+// APPROVE OR REJECT FLAGGED ATTENDANCE
+// ==================================================
+
+export const reviewFlaggedAttendance = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body || {};
+
+        if (!/^[a-f\d]{24}$/i.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid attendance ID.",
+            });
+        }
+
+        if (!["approve", "reject"].includes(action)) {
+            return res.status(400).json({
+                success: false,
+                message: "Action must be approve or reject.",
+            });
+        }
+
+        if (!req.user?.id) {
+            return res.status(401).json({
+                success: false,
+                message: "Admin authentication is required.",
+            });
+        }
+
+        const verificationStatus =
+            action === "approve" ? "approved" : "rejected";
+
+        const attendance = await Attendance.findOneAndUpdate(
+            {
+                _id: id,
+                status: "flagged",
+                $or: [
+                    { verificationStatus: "pending" },
+                    { verificationStatus: { $exists: false } },
+                ],
+            },
+            {
+                $set: {
+                    verificationStatus,
+                    verifiedBy: req.user.id,
+                    verifiedAt: new Date(),
+                },
+            },
+            {
+                new: true,
+                runValidators: true,
+            }
+        );
+
+        if (!attendance) {
+            return res.status(404).json({
+                success: false,
+                message:
+                    "Pending flagged attendance not found. It may already have been reviewed.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message:
+                action === "approve"
+                    ? "Flagged attendance approved successfully."
+                    : "Flagged attendance rejected successfully.",
+            attendance,
+        });
+    } catch (error) {
+        console.error("Review flagged attendance error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to review flagged attendance.",
         });
     }
 };

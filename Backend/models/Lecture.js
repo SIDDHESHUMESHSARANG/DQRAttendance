@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const lectureSchema = new mongoose.Schema(
@@ -24,6 +25,13 @@ const lectureSchema = new mongoose.Schema(
             type: String,
             required: true,
             trim: true,
+        },
+
+        // Classroom assigned to this lecture
+        classroom: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Classroom",
+            required: true,
         },
 
         date: {

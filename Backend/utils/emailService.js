@@ -65,3 +65,29 @@ export const sendProfessorRegistrationOTP = async (email, otp) => {
         throw error;
     }
 };
+
+ // Student Registration OTP
+export const sendStudentRegistrationOTP = async (email, otp) => {
+    try {
+        const result = await transporter.sendMail({
+            from: process.env.MAIL_FROM,
+            to: email,
+            subject: "Student Account Activation OTP - QR Attendance System",
+            text: `Your Student account activation OTP is ${otp}. It is valid for 3 minutes. Do not share this OTP with anyone.`,
+        });
+
+        console.log(
+            "Student activation OTP email sent successfully:",
+            result.messageId
+        );
+
+        return result;
+    } catch (error) {
+        console.error(
+            "Student OTP email failed:",
+            error.code,
+            error.message
+        );
+        throw error;
+    }
+};

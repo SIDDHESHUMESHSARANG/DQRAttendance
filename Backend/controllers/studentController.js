@@ -1,370 +1,712 @@
-import Student from "../models/Student.js";
+
+import Student from "../models/StudentModel.js";
+import PendingStudentRegistration from "../models/PendingStudentRegistration.js";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { sendStudentRegistrationOTP } from "../utils/emailService.js";
 
-// ==========================================
-//           CORE CRUD OPERATIONS
-// ==========================================
+import Lecture from "../models/Lecture.js";
+import QRToken from "../models/QRToken.js";
+import Classroom from "../models/Classroom.js";
+import Attendance from "../models/Attendance.js";
 
-/**
- * 1. CREATE: STUDENT REGISTRATION
- * Creates a brand new student account with encrypted credentials.
- */
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const hashOTP = (otp) =>
+  crypto
+    .createHmac("sha256", process.env.OTP_SECRET || "")
+    .update(String(otp))
+    .digest("hex");
+
+const safeCompare = (a, b) => {
+  const bufferA = Buffer.from(a, "hex");
+  const bufferB = Buffer.from(b, "hex");
+
+  return (
+    bufferA.length === bufferB.length &&
+    bufferA.length > 0 &&
+    crypto.timingSafeEqual(bufferA, bufferB)
+  );
+};
+
+// 1. Request OTP for an Admin-created student record
 export const registerStudent = async (req, res) => {
   try {
-    const {
-      email,
-      password,
-      fullName,
-      rollNo,
-      batch,
-      class: className,
-    } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
 
-    const existingStudent = await Student.findOne({
-      email: email.toLowerCase(),
-    });
-    if (existingStudent) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Email is already registered." });
+    if (!email || !emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address.",
+      });
     }
 
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    if (!process.env.OTP_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: "OTP configuration is missing.",
+      });
+    }
 
-    const newStudent = new Student({
-      email,
-      passwordHash,
-      academicDetails: { fullName, rollNo, batch, class: className },
+    const student = await Student.findOne({ email });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "No Admin-created student record found for this email.",
+      });
+    }
+
+    if (student.isActivated || student.passwordHash) {
+      return res.status(409).json({
+        success: false,
+        message: "Account already activated. Please log in.",
+      });
+    }
+
+    const existingPending = await PendingStudentRegistration.findOne({
+      student: student._id,
     });
 
-    await newStudent.save();
-    return res
-      .status(201)
-      .json({
-        success: true,
-        message: "Student account created successfully! You can now log in.",
-      });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
+    if (existingPending && existingPending.expiresAt > new Date()) {
+      return res.status(429).json({
         success: false,
-        message: "Registration failed.",
-        error: error.message,
+        message: "An OTP was already sent. Please wait 3 minutes.",
       });
+    }
+
+    if (existingPending) {
+      await PendingStudentRegistration.deleteOne({
+        _id: existingPending._id,
+      });
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+
+    const pending = await PendingStudentRegistration.create({
+      student: student._id,
+      email,
+      otpHash: hashOTP(otp),
+      expiresAt: new Date(Date.now() + 3 * 60 * 1000),
+      attempts: 0,
+    });
+
+    try {
+      await sendStudentRegistrationOTP(email, otp);
+    } catch (emailError) {
+      await PendingStudentRegistration.deleteOne({
+        _id: pending._id,
+      });
+
+      console.error("Student OTP email failed:", emailError.message);
+
+      return res.status(502).json({
+        success: false,
+        message: "Unable to send OTP email. Please try again later.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Activation OTP sent. It is valid for 3 minutes.",
+    });
+  } catch (error) {
+    console.error("Student OTP request failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to start student activation.",
+    });
   }
 };
 
-/**
- * 2. LOGIN: STUDENT AUTHENTICATION
- * Authenticates credentials, runs device checks, and issues a secure JWT token.
- */
+// 2. Verify OTP and set the student's password
+export const verifyStudentOTP = async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const otp = String(req.body.otp || "");
+    const password = req.body.password;
+
+    if (!email || !emailRegex.test(email) || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid email and 6-digit OTP are required.",
+      });
+    }
+
+    if (typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must contain at least 8 characters.",
+      });
+    }
+
+    if (!process.env.OTP_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: "OTP configuration is missing.",
+      });
+    }
+
+    const pending = await PendingStudentRegistration.findOne({
+      email,
+    }).select("+otpHash");
+
+    if (!pending) {
+      return res.status(400).json({
+        success: false,
+        message: "Activation request not found. Request a new OTP.",
+      });
+    }
+
+    if (pending.expiresAt <= new Date()) {
+      await PendingStudentRegistration.deleteOne({
+        _id: pending._id,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: "OTP expired. Please request a new one.",
+      });
+    }
+
+    if (!safeCompare(hashOTP(otp), pending.otpHash)) {
+      pending.attempts += 1;
+
+      if (pending.attempts >= 5) {
+        await PendingStudentRegistration.deleteOne({
+          _id: pending._id,
+        });
+
+        return res.status(429).json({
+          success: false,
+          message: "Too many incorrect attempts. Request a new OTP.",
+        });
+      }
+
+      await pending.save();
+
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect OTP.",
+        attemptsRemaining: 5 - pending.attempts,
+      });
+    }
+
+    const student = await Student.findOne({
+      _id: pending.student,
+      email,
+    }).select("+passwordHash");
+
+    if (!student) {
+      await PendingStudentRegistration.deleteOne({
+        _id: pending._id,
+      });
+
+      return res.status(404).json({
+        success: false,
+        message: "Student record not found.",
+      });
+    }
+
+    if (student.isActivated || student.passwordHash) {
+      await PendingStudentRegistration.deleteOne({
+        _id: pending._id,
+      });
+
+      return res.status(409).json({
+        success: false,
+        message: "Student account is already activated.",
+      });
+    }
+
+    student.passwordHash = await bcrypt.hash(password, 10);
+    student.isActivated = true;
+
+    await student.save();
+
+    await PendingStudentRegistration.deleteOne({
+      _id: pending._id,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Student account activated. You can now log in.",
+    });
+  } catch (error) {
+    console.error("Student OTP verification failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to verify student activation.",
+    });
+  }
+};
+
+// 3. Student login
 export const loginStudent = async (req, res) => {
   try {
-    const { email, password, incomingDeviceUuid } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
+    const {
+      password,
+      incomingDeviceUuid,
+      platformInfo,
+    } = req.body;
 
-    const student = await Student.findOne({ email: email.toLowerCase() });
-    if (!student) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid email or password." });
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required.",
+      });
     }
 
-    const isMatch = await bcrypt.compare(password, student.passwordHash);
-    if (!isMatch) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid email or password." });
-    }
-
+    // A stable client-generated identifier is required.
     if (
-      student.deviceSecurity.isLocked &&
-      student.deviceSecurity.deviceUuid !== incomingDeviceUuid
+      typeof incomingDeviceUuid !== "string" ||
+      incomingDeviceUuid.trim().length < 16 ||
+      incomingDeviceUuid.length > 2048
     ) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Security Access Denied: Device mismatch.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "A valid device identifier is required.",
+      });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: "JWT configuration is missing.",
+      });
+    }
+
+    const student = await Student.findOne({ email })
+      .select("+passwordHash");
+
+    if (!student || !student.isActivated || !student.passwordHash) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password, or account not activated.",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(
+      password,
+      student.passwordHash
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password.",
+      });
+    }
+
+    // Hash the identifier before storing it.
+    const deviceHash = crypto
+      .createHash("sha256")
+      .update(incomingDeviceUuid)
+      .digest("hex");
+
+    // Initialize device security for older student records.
+    if (!student.deviceSecurity) {
+      student.deviceSecurity = {
+        isLocked: false,
+        lastUsedPlatform: "Unknown",
+      };
+    }
+
+    // First successful login claims the trusted device.
+    if (!student.deviceSecurity.isLocked) {
+      student.deviceSecurity.deviceUuid = deviceHash;
+      student.deviceSecurity.isLocked = true;
+      student.deviceSecurity.lastUsedPlatform =
+        typeof platformInfo === "string"
+          ? platformInfo.slice(0, 100)
+          : "Unknown";
+
+      await student.save();
+    } else if (
+      student.deviceSecurity.deviceUuid !== deviceHash
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account is registered to another device. Contact Admin to reset your trusted device.",
+      });
     }
 
     const token = jwt.sign(
-      { id: student._id, role: student.role },
-      process.env.JWT_SECRET || "fallback_secret_key",
-      { expiresIn: "1d" },
+      { id: student._id, role: "student" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
     );
 
     return res.status(200).json({
       success: true,
       message: "Login successful.",
       token,
-      isDeviceRegistered: student.deviceSecurity.isLocked,
+      isDeviceRegistered: true,
     });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Login failed.", error: error.message });
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "This device is already linked to another account.",
+      });
+    }
+
+    console.error("Student login failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Login failed.",
+    });
   }
 };
 
-/**
- * 3. READ: GET STUDENT PROFILE & DASHBOARD
- * Retrieves attendance metrics and academic information for the logged-in student.
- */
+// 4. Get the logged-in student's dashboard
 export const getStudentDashboard = async (req, res) => {
   try {
-    const student = await Student.findById(req.user.id).select("-passwordHash");
-    if (!student) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Student record not found." });
-    }
-    return res.status(200).json({ success: true, data: student });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
+    // Security fix: do not expose passwordHash or trusted-device details.
+    const student = await Student.findById(req.user.id)
+      .select("-passwordHash -deviceSecurity");
+
+    if (!student || !student.isActivated) {
+      return res.status(404).json({
         success: false,
-        message: "Server error while fetching dashboard.",
-        error: error.message,
+        message: "Student record not found.",
       });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: student,
+    });
+  } catch (error) {
+    console.error("Student dashboard error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch student dashboard.",
+    });
   }
 };
 
-/**
- * 4. UPDATE: UPDATE STUDENT PROFILE
- * Allows students to update basic information like their name.
- */
+// 5. Student can update only their name
 export const updateStudentProfile = async (req, res) => {
   try {
-    const { fullName } = req.body;
+    const fullName = req.body.fullName?.trim();
+
+    if (!fullName) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid full name is required.",
+      });
+    }
 
     const student = await Student.findById(req.user.id);
-    if (!student) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Student not found." });
+
+    if (!student || !student.isActivated) {
+      return res.status(404).json({
+        success: false,
+        message: "Student record not found.",
+      });
     }
 
-    if (fullName) student.academicDetails.fullName = fullName;
+    student.academicDetails.fullName = fullName;
     await student.save();
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Profile updated successfully.",
-        data: student,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully.",
+      data: {
+        id: student._id,
+        email: student.email,
+        academicDetails: student.academicDetails,
+      },
+    });
   } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update profile.",
-        error: error.message,
-      });
+    console.error("Student profile update failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update student profile.",
+    });
   }
 };
 
-/**
- * 5. DELETE: DELETE STUDENT ACCOUNT
- * Permanently removes the logged-in student's account from the system.
- */
-export const deleteStudentAccount = async (req, res) => {
-  try {
-    const student = await Student.findByIdAndDelete(req.user.id);
-    if (!student) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Student not found." });
-    }
-    return res
-      .status(200)
-      .json({ success: true, message: "Account deleted successfully." });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to delete account.",
-        error: error.message,
-      });
-  }
-};
-
-// ==========================================
-//       PROJECT-SPECIFIC SECURITY METRICS
-// ==========================================
-
-/**
- * 6. REGISTER DEVICE FINGERPRINT (One-Device, One-Student Policy)
- * Pairs the student's account to their smartphone device browser fingerprint during first setup.
- */
+// 6. Register the device for the authenticated student
 export const registerDeviceFingerprint = async (req, res) => {
   try {
     const { rawFingerprintData, platformInfo } = req.body;
 
-    if (!rawFingerprintData) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Device hardware signature missing.",
-        });
+    if (
+      typeof rawFingerprintData !== "string" ||
+      rawFingerprintData.trim().length < 16 ||
+      rawFingerprintData.length > 2048
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid device identifier is required.",
+      });
+    }
+
+    const student = await Student.findById(req.user.id);
+
+    if (!student || !student.isActivated) {
+      return res.status(404).json({
+        success: false,
+        message: "Student record not found.",
+      });
     }
 
     const generatedUuid = crypto
       .createHash("sha256")
       .update(rawFingerprintData)
       .digest("hex");
-    const student = await Student.findById(req.user.id);
-
-    if (!student) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Student record not found." });
-    }
 
     if (student.deviceSecurity.isLocked) {
-      return res
-        .status(403)
-        .json({
+      if (student.deviceSecurity.deviceUuid !== generatedUuid) {
+        return res.status(403).json({
           success: false,
-          message: "Account locked to another physical device. Contact admin.",
+          message: "This account is already registered to another device.",
         });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "This device is already registered.",
+      });
     }
 
     student.deviceSecurity.deviceUuid = generatedUuid;
     student.deviceSecurity.isLocked = true;
     student.deviceSecurity.lastUsedPlatform =
-      platformInfo || "Unknown Browser Context";
+      typeof platformInfo === "string"
+        ? platformInfo.slice(0, 100)
+        : "Unknown";
 
-    await student.save();
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Device fingerprint registered successfully.",
-      });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message:
-            "This physical device is already bound to another student account.",
-        });
-    }
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal server registry error.",
-        error: error.message,
-      });
-  }
-};
-
-// Helper function: Calculates distance between two points using the Haversine formula
-const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3; // Earth's radius in meters
-  const phi1 = (lat1 * Math.PI) / 180;
-  const phi2 = (lat2 * Math.PI) / 180;
-  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
-  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-    Math.cos(phi1) *
-      Math.cos(phi2) *
-      Math.sin(deltaLambda / 2) *
-      Math.sin(deltaLambda / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Distance returned in meters
-};
-
-/**
- * 7. SCAN AND SCANNER LOGIC (Core Dynamic Verification Engine)
- * Processes QR payload string, evaluates 3-5 second window, checks geofencing, updates stats.
- */
-export const processQrAttendance = async (req, res) => {
-  try {
-    const {
-      qrToken,
-      clientTimestamp,
-      latitude,
-      longitude,
-      incomingDeviceUuid,
-    } = req.body;
-
-    const student = await Student.findById(req.user.id);
-    if (!student) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Student record not found." });
-    }
-
-    if (student.deviceSecurity.deviceUuid !== incomingDeviceUuid) {
-      return res
-        .status(401)
-        .json({
-          success: false,
-          message: "Security Violation: Device signature mismatch.",
-        });
-    }
-
-    const currentTime = Date.now();
-    const tokenAgeInMs = currentTime - clientTimestamp;
-
-    if (tokenAgeInMs > 5000 || tokenAgeInMs < 0) {
-      return res
-        .status(410)
-        .json({
-          success: false,
-          message: "QR Token expired. Refresh and rescan immediately.",
-        });
-    }
-
-    const classroomLat = 19.2183;
-    const classroomLon = 73.1843;
-    const distanceMeters = calculateHaversineDistance(
-      latitude,
-      longitude,
-      classroomLat,
-      classroomLon,
-    );
-
-    if (distanceMeters > 30) {
-      return res.status(403).json({
-        success: false,
-        message: `Geofence violation: Out of bounds. You are ${Math.round(distanceMeters)}m away from the classroom.`,
-        isAnomaly: true,
-      });
-    }
-
-    student.attendanceSummary.totalSessionsConducted += 1;
-    student.attendanceSummary.totalSessionsAttended += 1;
     await student.save();
 
     return res.status(200).json({
       success: true,
-      message: "Attendance recorded successfully.",
-      newPercentage: student.attendanceSummary.attendancePercentage,
+      message: "Device registered successfully.",
     });
   } catch (error) {
-    return res
-      .status(500)
-      .json({
+    if (error.code === 11000) {
+      return res.status(409).json({
         success: false,
-        message: "Attendance validation failure.",
-        error: error.message,
+        message: "This device identifier is already linked to another account.",
       });
+    }
+
+    console.error("Device registration failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to register device.",
+    });
+  }
+};
+
+// Helper: validate MongoDB ObjectId format
+const isValidAttendanceObjectId = (value) =>
+  typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
+
+// Helper: calculate distance between two GPS coordinates in meters
+const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+
+  const safeA = Math.min(1, Math.max(0, a));
+
+  return (
+    2 *
+    earthRadiusMeters *
+    Math.atan2(Math.sqrt(safeA), Math.sqrt(1 - safeA))
+  );
+};
+
+// 7. QR attendance recording with classroom location verification
+export const processQrAttendance = async (req, res) => {
+  try {
+    const { lectureId, token, latitude, longitude } = req.body || {};
+    const studentId = req.user?.id;
+
+    if (
+      !studentId ||
+      !isValidAttendanceObjectId(lectureId) ||
+      typeof token !== "string" ||
+      !/^[a-f\d]{64}$/i.test(token)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid student or QR data.",
+      });
+    }
+
+    if (
+      typeof latitude !== "number" ||
+      typeof longitude !== "number" ||
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid location coordinates are required.",
+      });
+    }
+
+    const student = await Student.findById(studentId);
+
+    if (!student || !student.isActivated) {
+      return res.status(403).json({
+        success: false,
+        message: "Student account is not active.",
+      });
+    }
+
+    // Revalidate the QR token on the server.
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const qrToken = await QRToken.findOne({
+      lecture: lectureId,
+      tokenHash,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!qrToken) {
+      return res.status(400).json({
+        success: false,
+        message: "QR token is invalid, expired, or replaced. Scan the latest QR.",
+      });
+    }
+
+    const lecture = await Lecture.findById(lectureId);
+
+    if (!lecture || lecture.status !== "ongoing") {
+      return res.status(400).json({
+        success: false,
+        message: "Lecture is not currently ongoing.",
+      });
+    }
+
+    // Only students assigned to this class can mark attendance.
+    const studentClass = student.academicDetails?.class
+      ?.trim()
+      .toUpperCase();
+
+    const lectureClass = lecture.assignedClass
+      ?.trim()
+      .toUpperCase();
+
+    if (!studentClass || studentClass !== lectureClass) {
+      return res.status(403).json({
+        success: false,
+        message: "This lecture is not assigned to your class.",
+      });
+    }
+
+    const classroom = await Classroom.findById(lecture.classroom);
+
+    if (!classroom || !classroom.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Classroom is missing or inactive.",
+      });
+    }
+
+    // Prevent a second attendance record for the same lecture.
+    const existingAttendance = await Attendance.findOne({
+      student: student._id,
+      lecture: lecture._id,
+    });
+
+    if (existingAttendance) {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance has already been recorded for this lecture.",
+      });
+    }
+
+    const distanceMeters = calculateDistanceMeters(
+      latitude,
+      longitude,
+      classroom.latitude,
+      classroom.longitude
+    );
+
+    const radiusMeters = classroom.radiusMeters ?? 30;
+    const isWithinRadius = distanceMeters <= radiusMeters;
+
+    const attendanceDate = new Date();
+    attendanceDate.setUTCHours(0, 0, 0, 0);
+
+    const attendance = await Attendance.create({
+      student: student._id,
+      lecture: lecture._id,
+      classroom: classroom._id,
+      attendanceDate,
+      markedAt: new Date(),
+      location: {
+        latitude,
+        longitude,
+        distanceMeters: Math.round(distanceMeters * 100) / 100,
+      },
+      status: isWithinRadius ? "present" : "flagged",
+      verificationNote: isWithinRadius
+        ? ""
+        : `Outside classroom radius. Distance: ${Math.round(
+            distanceMeters
+          )}m; allowed radius: ${radiusMeters}m. Admin verification required.`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: isWithinRadius
+        ? "Attendance recorded successfully."
+        : "Attendance recorded but flagged for admin verification.",
+      attendance: {
+        id: attendance._id,
+        lectureId: attendance.lecture,
+        status: attendance.status,
+        distanceMeters: attendance.location.distanceMeters,
+        allowedRadiusMeters: radiusMeters,
+        verificationRequired: !isWithinRadius,
+        markedAt: attendance.markedAt,
+      },
+    });
+  } catch (error) {
+    // The unique index also prevents duplicate records from concurrent requests.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance has already been recorded for this lecture.",
+      });
+    }
+
+    console.error("QR attendance recording failed:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to record attendance.",
+    });
   }
 };

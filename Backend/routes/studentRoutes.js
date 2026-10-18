@@ -1,50 +1,67 @@
+
 import express from "express";
 
 import {
   registerStudent,
+  verifyStudentOTP,
   loginStudent,
   getStudentDashboard,
   updateStudentProfile,
-  deleteStudentAccount,
   registerDeviceFingerprint,
   processQrAttendance,
 } from "../controllers/studentController.js";
 
-import authMiddleware from "../middleware/authMiddleware.js";
+import {
+  validateLectureQR,
+} from "../controllers/qrController.js";
+
+import authMiddleware, {
+  authorizeRoles,
+} from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// ==========================================
-//          PUBLIC AUTH ENDPOINTS
-// ==========================================
-
-// Student Registration
+// Public student activation and login
 router.post("/register", registerStudent);
-
-// Student Login
+router.post("/verify-otp", verifyStudentOTP);
 router.post("/login", loginStudent);
 
-// ==========================================
-//        PROTECTED CRUD & SECURITY
-// ==========================================
+// Protected student routes: logged-in student only
+router.get(
+  "/dashboard",
+  authMiddleware,
+  authorizeRoles("student"),
+  getStudentDashboard
+);
 
-// Get Student Profile / Dashboard
-router.get("/dashboard", authMiddleware, getStudentDashboard);
+router.put(
+  "/profile",
+  authMiddleware,
+  authorizeRoles("student"),
+  updateStudentProfile
+);
 
-// Update Student Profile
-router.put("/profile", authMiddleware, updateStudentProfile);
+router.post(
+  "/device/register",
+  authMiddleware,
+  authorizeRoles("student"),
+  registerDeviceFingerprint
+);
 
-// Delete Student Account
-router.delete("/account", authMiddleware, deleteStudentAccount);
+// Validate QR token before attendance scanning
+router.post(
+  "/attendance/validate-qr",
+  authMiddleware,
+  authorizeRoles("student"),
+  validateLectureQR
+);
 
-// ==========================================
-//        PROJECT SPECIFIC MECHANICS
-// ==========================================
-
-// Register Device Fingerprint (One Device One Student Policy)
-router.post("/device/register", authMiddleware, registerDeviceFingerprint);
-
-// Process Scan & Record QR Attendance (Dynamic QR + Geofence Verification)
-router.post("/attendance/scan", authMiddleware, processQrAttendance);
+// Attendance scan endpoint (recording implementation comes later)
+router.post(
+  "/attendance/scan",
+  authMiddleware,
+  authorizeRoles("student"),
+  processQrAttendance
+);
 
 export default router;
