@@ -3,7 +3,7 @@
  * @param {import('mongoose').Schema} schema
  */
 export const applyStudentMiddleware = (schema) => {
-  schema.pre("save", function (next) {
+  schema.pre("save", function () {
     const summary = this.attendanceSummary;
 
     if (summary.totalSessionsConducted > 0) {
@@ -17,6 +17,5 @@ export const applyStudentMiddleware = (schema) => {
       summary.attendancePercentage = 0.0;
     }
 
-    next();
   });
 };

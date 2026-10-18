@@ -7,6 +7,10 @@ import {
   loginAdmin,
   logoutAdmin,
 } from "../controllers/adminController.js";
+import {
+  getLowAttendanceStudents,
+  sendLowAttendanceAlert,
+} from "../controllers/attendanceAlertController.js";
 
 import authMiddleware, {
   authorizeRoles,
@@ -37,6 +41,20 @@ router.get(
       admin: req.user,
     });
   }
+);
+
+// Low-attendance listing and WhatsApp alert delivery
+router.get(
+  "/students/low-attendance",
+  authMiddleware,
+  authorizeRoles("admin"),
+  getLowAttendanceStudents
+);
+router.post(
+  "/students/:studentId/attendance-alert",
+  authMiddleware,
+  authorizeRoles("admin"),
+  sendLowAttendanceAlert
 );
 
 export default router;

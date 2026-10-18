@@ -1,7 +1,11 @@
-import Student from "../models/Student.js";
+import Student from "../models/StudentModel.js";
 import crypto from "crypto";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { sendWhatsAppMessage } from "../utils/whatsappService.js";
+
+const isValidWhatsappNumber = (value) =>
+  typeof value === "string" && /^\+[1-9]\d{7,14}$/.test(value);
 
 // ==========================================
 //           CORE CRUD OPERATIONS
@@ -20,7 +24,19 @@ export const registerStudent = async (req, res) => {
       rollNo,
       batch,
       class: className,
+      whatsappNumber,
     } = req.body;
+
+    if (
+      whatsappNumber !== undefined &&
+      whatsappNumber !== "" &&
+      !isValidWhatsappNumber(whatsappNumber)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "WhatsApp number must use E.164 format, for example +14155552671.",
+      });
+    }
 
     const existingStudent = await Student.findOne({
       email: email.toLowerCase(),
@@ -38,6 +54,7 @@ export const registerStudent = async (req, res) => {
       email,
       passwordHash,
       academicDetails: { fullName, rollNo, batch, class: className },
+      whatsappNumber: whatsappNumber || null,
     });
 
     await newStudent.save();
@@ -141,7 +158,18 @@ export const getStudentDashboard = async (req, res) => {
  */
 export const updateStudentProfile = async (req, res) => {
   try {
-    const { fullName } = req.body;
+    const { fullName, whatsappNumber } = req.body;
+
+    if (
+      whatsappNumber !== undefined &&
+      whatsappNumber !== "" &&
+      !isValidWhatsappNumber(whatsappNumber)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "WhatsApp number must use E.164 format, for example +14155552671.",
+      });
+    }
 
     const student = await Student.findById(req.user.id);
     if (!student) {
@@ -151,6 +179,9 @@ export const updateStudentProfile = async (req, res) => {
     }
 
     if (fullName) student.academicDetails.fullName = fullName;
+    if (whatsappNumber !== undefined) {
+      student.whatsappNumber = whatsappNumber || null;
+    }
     await student.save();
 
     return res
@@ -320,8 +351,29 @@ export const processQrAttendance = async (req, res) => {
         });
     }
 
+    const numericLatitude = Number(latitude);
+    const numericLongitude = Number(longitude);
+    const numericClientTimestamp = Number(clientTimestamp);
+
+    if (
+      !Number.isFinite(numericLatitude) ||
+      numericLatitude < -90 ||
+      numericLatitude > 90 ||
+      !Number.isFinite(numericLongitude) ||
+      numericLongitude < -180 ||
+      numericLongitude > 180 ||
+      clientTimestamp === undefined ||
+      clientTimestamp === null ||
+      !Number.isFinite(numericClientTimestamp)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid client timestamp and GPS coordinates are required.",
+      });
+    }
+
     const currentTime = Date.now();
-    const tokenAgeInMs = currentTime - clientTimestamp;
+    const tokenAgeInMs = currentTime - numericClientTimestamp;
 
     if (tokenAgeInMs > 5000 || tokenAgeInMs < 0) {
       return res
@@ -335,17 +387,32 @@ export const processQrAttendance = async (req, res) => {
     const classroomLat = 19.2183;
     const classroomLon = 73.1843;
     const distanceMeters = calculateHaversineDistance(
-      latitude,
-      longitude,
+      numericLatitude,
+      numericLongitude,
       classroomLat,
       classroomLon,
     );
 
     if (distanceMeters > 30) {
+      let adminAlertSent = false;
+
+      try {
+        await sendWhatsAppMessage(
+          process.env.ADMIN_WHATSAPP_TO,
+          `Out-of-range attendance scan: ${student.academicDetails.fullName} ` +
+            `(roll ${student.academicDetails.rollNo}, ${student.email}) is ` +
+            `${Math.round(distanceMeters)}m from the classroom.`,
+        );
+        adminAlertSent = true;
+      } catch (error) {
+        console.error("Out-of-range WhatsApp admin alert failed:", error.message);
+      }
+
       return res.status(403).json({
         success: false,
         message: `Geofence violation: Out of bounds. You are ${Math.round(distanceMeters)}m away from the classroom.`,
         isAnomaly: true,
+        adminAlertSent,
       });
     }
 

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { applyStudentMiddleware } from "./studentMiddleware.js";
+import { applyStudentMiddleware } from "../middleware/studentMiddleware.js";
 
 const studentSchema = new mongoose.Schema(
   {
@@ -11,6 +11,13 @@ const studentSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, "Please use a valid email address"],
+    },
+
+    whatsappNumber: {
+      type: String,
+      trim: true,
+      default: null,
+      match: [/^\+[1-9]\d{7,14}$/, "WhatsApp number must use E.164 format"],
     },
 
     passwordHash: {
