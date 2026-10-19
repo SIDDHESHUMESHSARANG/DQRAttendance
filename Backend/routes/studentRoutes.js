@@ -5,15 +5,13 @@ import {
   registerStudent,
   verifyStudentOTP,
   loginStudent,
+  logoutStudent,
   getStudentDashboard,
-  updateStudentProfile,
   registerDeviceFingerprint,
   processQrAttendance,
 } from "../controllers/studentController.js";
 
-import {
-  validateLectureQR,
-} from "../controllers/qrController.js";
+import { validateLectureQR } from "../controllers/qrController.js";
 
 import authMiddleware, {
   authorizeRoles,
@@ -34,13 +32,18 @@ router.get(
   getStudentDashboard
 );
 
-router.put(
-  "/profile",
+// Student profile update disabled.
+// Only Admin should update student academic details.
+
+// Student logout
+router.post(
+  "/logout",
   authMiddleware,
   authorizeRoles("student"),
-  updateStudentProfile
+  logoutStudent
 );
 
+// Register trusted device
 router.post(
   "/device/register",
   authMiddleware,
@@ -56,7 +59,7 @@ router.post(
   validateLectureQR
 );
 
-// Attendance scan endpoint (recording implementation comes later)
+// Attendance scan
 router.post(
   "/attendance/scan",
   authMiddleware,

@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import XLSX from "xlsx";
+import Lecture from "../models/Lecture.js";
 import Student from "../models/StudentModel.js";
 import RevokedToken from "../models/RevokedToken.js";
 import { sendAdminOTP } from "../utils/emailService.js";
@@ -682,6 +683,8 @@ export const updateStudent = async (req, res) => {
             course,
             division,
             phone,
+            whatsappNumber,
+
         } = req.body || {};
 
         const details = student.academicDetails;
@@ -780,6 +783,18 @@ export const updateStudent = async (req, res) => {
 
             student.phone = phone.trim();
         }
+        if (whatsappNumber !== undefined) {
+            if (
+                typeof whatsappNumber !== "string" ||
+                !/^\+[1-9]\d{7,14}$/.test(whatsappNumber.trim())
+            ) {
+                return res.status(400).json({
+                    message: "WhatsApp number must include country code, e.g. +919876543210",
+                });
+            }
+
+            student.whatsappNumber = whatsappNumber.trim();
+        }
 
         const duplicate = await findStudentDuplicate({
             email: student.email,
@@ -799,6 +814,7 @@ export const updateStudent = async (req, res) => {
                 message: "This roll number already exists in this class",
             });
         }
+        
 
         await student.save();
 
@@ -1127,9 +1143,8 @@ export const bulkUploadStudents = async (req, res) => {
                     ) {
                         reason = "Duplicate device UUID";
                     } else {
-                        reason = `Duplicate value: ${
-                            duplicateFields.join(", ") || "unknown field"
-                        }`;
+                        reason = `Duplicate value: ${duplicateFields.join(", ") || "unknown field"
+                            }`;
                     }
                 } else if (error.name === "ValidationError") {
                     reason = error.message;
@@ -1327,6 +1342,490 @@ export const reviewFlaggedAttendance = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: "Unable to review flagged attendance.",
+        });
+    }
+};
+
+/**
+ * GET /api/admin/attendance/overview
+ * Overall attendance summary for all students.
+ */
+export const getAttendanceOverview = async (req, res) => {
+    try {
+        const [
+            totalStudents,
+            completedLectures,
+            students,
+        ] = await Promise.all([
+            Student.countDocuments({}),
+            Lecture.find({ status: "completed" })
+                .select("_id assignedClass subject date")
+                .lean(),
+            Student.find({})
+                .select(
+                    "email academicDetails.fullName academicDetails.rollNo academicDetails.class academicDetails.division"
+                )
+                .lean(),
+        ]);
+
+        const lectureIds = completedLectures.map(
+            (lecture) => lecture._id
+        );
+
+        const attendanceRecords = lectureIds.length > 0 && students.length > 0
+            ? await Attendance.find({
+                lecture: { $in: lectureIds },
+                student: { $in: students.map((student) => student._id) },
+            })
+                .select("student lecture status verificationStatus")
+                .lean()
+            : [];
+
+        const attendanceMap = new Map();
+
+        for (const record of attendanceRecords) {
+            attendanceMap.set(
+                `${record.student.toString()}_${record.lecture.toString()}`,
+                record
+            );
+        }
+
+        let totalApplicableSessions = 0;
+        let totalSessionsAttended = 0;
+
+        const studentSummaries = students.map((student) => {
+            const studentClass = String(
+                student.academicDetails?.class || ""
+            ).trim().toLowerCase();
+
+            const classLectures = completedLectures.filter(
+                (lecture) =>
+                    String(lecture.assignedClass || "")
+                        .trim()
+                        .toLowerCase() === studentClass
+            );
+
+            let attended = 0;
+
+            for (const lecture of classLectures) {
+                const key =
+                    `${student._id.toString()}_${lecture._id.toString()}`;
+
+                const record = attendanceMap.get(key);
+
+                if (
+                    record?.status === "present" ||
+                    (
+                        record?.status === "flagged" &&
+                        record?.verificationStatus === "approved"
+                    )
+                ) {
+                    attended++;
+                }
+            }
+
+            const conducted = classLectures.length;
+
+            totalApplicableSessions += conducted;
+            totalSessionsAttended += attended;
+
+            return {
+                studentId: student._id,
+                name: student.academicDetails?.fullName || "",
+                rollNo: student.academicDetails?.rollNo ?? null,
+                class: student.academicDetails?.class || "",
+                division: student.academicDetails?.division || "",
+                totalSessionsConducted: conducted,
+                totalSessionsAttended: attended,
+                attendancePercentage:
+                    conducted === 0
+                        ? 0
+                        : Number(
+                            ((attended / conducted) * 100).toFixed(2)
+                        ),
+            };
+        });
+
+        const attendancePercentage =
+            totalApplicableSessions === 0
+                ? 0
+                : Number(
+                    (
+                        (totalSessionsAttended /
+                            totalApplicableSessions) *
+                        100
+                    ).toFixed(2)
+                );
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalStudents,
+                totalCompletedLectures: completedLectures.length,
+                totalApplicableSessions,
+                totalSessionsAttended,
+                totalSessionsAbsentOrUnconfirmed:
+                    totalApplicableSessions - totalSessionsAttended,
+                attendancePercentage,
+                students: studentSummaries,
+            },
+        });
+    } catch (error) {
+        console.error("Get attendance overview error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to fetch overall attendance overview.",
+        });
+    }
+};
+
+
+/**
+ * GET /api/admin/students/:id/attendance
+ * Attendance history for one student.
+ */
+export const getStudentAttendanceHistory = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!/^[a-f\d]{24}$/i.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid student ID.",
+            });
+        }
+
+        const student = await Student.findById(id)
+            .select(
+                "email academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division"
+            )
+            .lean();
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: "Student not found.",
+            });
+        }
+
+        const studentClass = String(
+            student.academicDetails?.class || ""
+        ).trim();
+
+        if (!studentClass) {
+            return res.status(400).json({
+                success: false,
+                message: "Student class is not available.",
+            });
+        }
+
+        const escapedClass = studentClass.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+        );
+
+        const lectures = await Lecture.find({
+            assignedClass: {
+                $regex: `^${escapedClass}$`,
+                $options: "i",
+            },
+            status: "completed",
+        })
+            .select(
+                "subject assignedClass date startTime endTime status"
+            )
+            .sort({ date: -1, startTime: -1 })
+            .lean();
+
+        const lectureIds = lectures.map((lecture) => lecture._id);
+
+        const records = lectureIds.length > 0
+            ? await Attendance.find({
+                student: student._id,
+                lecture: { $in: lectureIds },
+            })
+                .select(
+                    "lecture attendanceDate markedAt status verificationStatus verificationNote"
+                )
+                .lean()
+            : [];
+
+        const attendanceMap = new Map(
+            records.map((record) => [
+                record.lecture.toString(),
+                record,
+            ])
+        );
+
+        let totalSessionsAttended = 0;
+
+        const attendanceHistory = lectures.map((lecture) => {
+            const record = attendanceMap.get(
+                lecture._id.toString()
+            );
+
+            let attendanceStatus = "absent";
+
+            if (record?.status === "present") {
+                attendanceStatus = "present";
+                totalSessionsAttended++;
+            } else if (
+                record?.status === "flagged" &&
+                record?.verificationStatus === "approved"
+            ) {
+                attendanceStatus = "approved";
+                totalSessionsAttended++;
+            } else if (
+                record?.status === "flagged" &&
+                record?.verificationStatus === "pending"
+            ) {
+                attendanceStatus = "pending_verification";
+            } else if (
+                record?.status === "flagged" &&
+                record?.verificationStatus === "rejected"
+            ) {
+                attendanceStatus = "rejected";
+            }
+
+            return {
+                lectureId: lecture._id,
+                subject: lecture.subject,
+                class: lecture.assignedClass,
+                date: lecture.date,
+                startTime: lecture.startTime,
+                endTime: lecture.endTime,
+                attendanceStatus,
+                attendanceDate: record?.attendanceDate || null,
+                markedAt: record?.markedAt || null,
+                verificationNote: record?.verificationNote || "",
+            };
+        });
+
+        const totalSessionsConducted = lectures.length;
+
+        const attendancePercentage =
+            totalSessionsConducted === 0
+                ? 0
+                : Number(
+                    (
+                        (totalSessionsAttended /
+                            totalSessionsConducted) *
+                        100
+                    ).toFixed(2)
+                );
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                student: {
+                    id: student._id,
+                    name: student.academicDetails?.fullName || "",
+                    rollNo: student.academicDetails?.rollNo ?? null,
+                    batch: student.academicDetails?.batch || "",
+                    class: studentClass,
+                    division: student.academicDetails?.division || "",
+                    email: student.email,
+                },
+                attendanceSummary: {
+                    totalSessionsConducted,
+                    totalSessionsAttended,
+                    attendancePercentage,
+                },
+                attendanceHistory,
+            },
+        });
+    } catch (error) {
+        console.error(
+            "Get student attendance history error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to fetch student attendance history.",
+        });
+    }
+};
+
+/**
+ * GET /api/admin/attendance/by-date?date=YYYY-MM-DD
+ * Subject-wise attendance for a selected lecture date.
+ */
+export const getAttendanceByDate = async (req, res) => {
+    try {
+        const { date } = req.query;
+
+        // Validate date format
+        if (
+            typeof date !== "string" ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(date)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide date in YYYY-MM-DD format.",
+            });
+        }
+
+        const startDate = new Date(`${date}T00:00:00.000Z`);
+
+        if (
+            Number.isNaN(startDate.getTime()) ||
+            startDate.toISOString().slice(0, 10) !== date
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid date.",
+            });
+        }
+
+        const endDate = new Date(startDate);
+        endDate.setUTCDate(endDate.getUTCDate() + 1);
+
+        // Find completed lectures on the selected date
+        const lectures = await Lecture.find({
+            status: "completed",
+            date: {
+                $gte: startDate,
+                $lt: endDate,
+            },
+        })
+            .select("_id subject assignedClass date startTime endTime")
+            .lean();
+
+        if (lectures.length === 0) {
+            return res.status(200).json({
+                success: true,
+                date,
+                count: 0,
+                data: [],
+                message: "No completed lectures found for this date.",
+            });
+        }
+
+        const lectureIds = lectures.map((lecture) => lecture._id);
+
+        // Count students by class
+        const classNames = [
+            ...new Set(
+                lectures
+                    .map((lecture) =>
+                        String(lecture.assignedClass || "").trim()
+                    )
+                    .filter(Boolean)
+            ),
+        ];
+
+        const students = await Student.find({
+            "academicDetails.class": {
+                $in: classNames,
+            },
+        })
+            .select("_id academicDetails.class")
+            .lean();
+
+        const studentsByClass = new Map();
+
+        for (const student of students) {
+            const key = String(
+                student.academicDetails?.class || ""
+            ).trim().toLowerCase();
+
+            studentsByClass.set(
+                key,
+                (studentsByClass.get(key) || 0) + 1
+            );
+        }
+
+        const records = await Attendance.find({
+            lecture: { $in: lectureIds },
+        })
+            .select("student lecture status verificationStatus")
+            .lean();
+
+        const attendanceByLecture = new Map();
+
+        for (const record of records) {
+            const key = record.lecture.toString();
+
+            if (!attendanceByLecture.has(key)) {
+                attendanceByLecture.set(key, []);
+            }
+
+            attendanceByLecture.get(key).push(record);
+        }
+
+        const data = lectures.map((lecture) => {
+            const classKey = String(
+                lecture.assignedClass || ""
+            ).trim().toLowerCase();
+
+            const totalStudents = studentsByClass.get(classKey) || 0;
+            const lectureRecords =
+                attendanceByLecture.get(lecture._id.toString()) || [];
+
+            const presentRecords = lectureRecords.filter(
+                (record) =>
+                    record.status === "present" ||
+                    (
+                        record.status === "flagged" &&
+                        record.verificationStatus === "approved"
+                    )
+            );
+
+            const pendingRecords = lectureRecords.filter(
+                (record) =>
+                    record.status === "flagged" &&
+                    record.verificationStatus === "pending"
+            );
+
+            const rejectedRecords = lectureRecords.filter(
+                (record) =>
+                    record.status === "flagged" &&
+                    record.verificationStatus === "rejected"
+            );
+
+            const present = presentRecords.length;
+            const pendingVerification = pendingRecords.length;
+            const rejected = rejectedRecords.length;
+            const absent = Math.max(
+                0,
+                totalStudents - present - pendingVerification - rejected
+            );
+
+            return {
+                lectureId: lecture._id,
+                subject: lecture.subject,
+                class: lecture.assignedClass,
+                date: lecture.date,
+                startTime: lecture.startTime,
+                endTime: lecture.endTime,
+                totalStudents,
+                present,
+                absent,
+                pendingVerification,
+                rejected,
+                attendancePercentage:
+                    totalStudents === 0
+                        ? 0
+                        : Number(
+                            ((present / totalStudents) * 100).toFixed(2)
+                        ),
+            };
+        });
+
+        return res.status(200).json({
+            success: true,
+            date,
+            count: data.length,
+            data,
+        });
+    } catch (error) {
+        console.error("Get date-wise attendance error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to fetch date-wise attendance.",
         });
     }
 };

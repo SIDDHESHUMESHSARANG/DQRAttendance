@@ -1,4 +1,3 @@
-
 import express from "express";
 import multer from "multer";
 
@@ -14,7 +13,15 @@ import {
   resetStudentTrustedDevice,
   getFlaggedAttendance,
   reviewFlaggedAttendance,
+  getAttendanceOverview,
+  getStudentAttendanceHistory,
+  getAttendanceByDate,
 } from "../controllers/adminController.js";
+
+import {
+  getLowAttendanceStudents,
+  sendLowAttendanceAlert,
+} from "../controllers/attendanceAlertController.js";
 
 import authMiddleware, {
   authorizeRoles,
@@ -119,4 +126,38 @@ router.patch(
   reviewFlaggedAttendance
 );
 
+// Low-attendance listing - Admin only
+router.get(
+  "/students/low-attendance",
+  authMiddleware,
+  authorizeRoles("admin"),
+  getLowAttendanceStudents
+);
+
+// Send low-attendance WhatsApp alert - Admin only
+router.post(
+  "/students/:studentId/attendance-alert",
+  authMiddleware,
+  authorizeRoles("admin"),
+  sendLowAttendanceAlert
+);
+router.get(
+    "/attendance/overview",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getAttendanceOverview
+);
+
+router.get(
+    "/students/:id/attendance",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getStudentAttendanceHistory
+);
+router.get(
+    "/attendance/by-date",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getAttendanceByDate
+);
 export default router;

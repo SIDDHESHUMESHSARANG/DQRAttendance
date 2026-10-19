@@ -1,4 +1,3 @@
-
 /**
  * Attaches pre-save hooks to the student schema
  * @param {import('mongoose').Schema} schema
