@@ -637,13 +637,8 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 5px;
   min-width: 0;
-<<<<<<< HEAD
   color: #ffffff;
-  font-size: 13px;
-=======
-  color: #fff;
-  font-size: 15px;
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
+  font-size: 14px;
   font-weight: 750;
   letter-spacing: -0.3px;
   overflow-wrap: anywhere;
@@ -1735,7 +1730,6 @@ textarea:focus-visible {
     transform: none;
   }
 }
-<<<<<<< HEAD
 /* Clean and professional sidebar text */
 .dashboard-nav-item {
   display: flex;
@@ -2819,5 +2813,3 @@ textarea:focus-visible {
     transition: none;
   }
 }
-=======
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e

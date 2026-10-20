@@ -707,13 +707,7 @@ function Professor({ onLogout, theme, onToggleTheme }) {
             </div>
             <div>
               <h1>Professor Dashboard</h1>
-<<<<<<< HEAD
               <p className="prof-subtitle">DQRSmartAttendance · Attendance workspace</p>
-=======
-              <p className="prof-subtitle">
-                DQRAttendance · Attendance workspace
-              </p>
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
             </div>
           </div>
 

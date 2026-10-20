@@ -395,38 +395,29 @@ function StudentPortal({ onLogout, theme, onToggleTheme }) {
     <main className="student-portal">
       <div className="student-portal-inner">
         <header className="student-topbar">
-<<<<<<< HEAD
-          <a href="#student-home" className="student-brand" onClick={(event) => event.preventDefault()}>
-            <span className="student-brand-mark">
-              <img src="/favicon.svg" alt="" height="20" />
-            </span>
-            <span><strong>DQRSmartAttendance</strong><small>STUDENT PORTAL</small></span>
-          </a>
-          <div className="student-header-actions">
-            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-            <button type="button" className="student-logout" onClick={logout}>Sign out <span aria-hidden="true">↗</span></button>
-          </div>
-=======
           <a
             href="#student-home"
             className="student-brand"
             onClick={(event) => event.preventDefault()}
           >
-            <span className="student-brand-mark">Q</span>
+            <span className="student-brand-mark">
+              <img src="/favicon.svg" alt="" height="20" />
+            </span>
             <span>
-              <strong>DQRAttendance</strong>
+              <strong>DQRSmartAttendance</strong>
               <small>STUDENT PORTAL</small>
             </span>
           </a>
-
-          <button
-            type="button"
-            className="student-logout"
-            onClick={logout}
-          >
-            Sign out
-          </button>
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
+          <div className="student-header-actions">
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            <button
+              type="button"
+              className="student-logout"
+              onClick={logout}
+            >
+              Sign out <span aria-hidden="true">↗</span>
+            </button>
+          </div>
         </header>
 
         <section className="student-hero">
@@ -663,14 +654,9 @@ function StudentPortal({ onLogout, theme, onToggleTheme }) {
             </section>
           </>
         )}
-<<<<<<< HEAD
-        <footer className="student-footer">DQRSmartAttendance <span>Secure student access</span></footer>
-=======
-
         <footer className="student-footer">
-          DQRAttendance <span>Secure student access</span>
+          DQRSmartAttendance <span>Secure student access</span>
         </footer>
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
       </div>
     </main>
   );

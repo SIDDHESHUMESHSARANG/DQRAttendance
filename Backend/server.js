@@ -87,15 +87,11 @@ app.use("/api/classrooms", classroomRoutes);
    ========================================= */
 
 app.get("/", (req, res) => {
-<<<<<<< HEAD
-  res.send("DQRSmartAttendance Backend Running");
-=======
   res.status(200).json({
     success: true,
-    message: "DQRAttendance Backend Running",
+    message: "DQRSmartAttendance Backend Running",
     status: "OK",
   });
->>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
 });
 
 /* =========================================
