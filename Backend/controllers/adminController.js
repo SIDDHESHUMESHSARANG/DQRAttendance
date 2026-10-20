@@ -55,6 +55,7 @@ const formatStudent = (student) => ({
     division: student.academicDetails.division,
     email: student.email,
     phone: student.phone || "",
+    whatsappNumber: student.whatsappNumber || "",
     isActivated: student.isActivated,
     createdAt: student.createdAt,
     updatedAt: student.updatedAt,
@@ -485,6 +486,7 @@ export const addStudent = async (req, res) => {
             course,
             division,
             phone,
+            whatsappNumber,
         } = req.body || {};
 
         const rawName = fullName ?? name;
@@ -526,6 +528,25 @@ export const addStudent = async (req, res) => {
             });
         }
 
+        if (
+            whatsappNumber !== undefined &&
+            typeof whatsappNumber !== "string"
+        ) {
+            return res.status(400).json({
+                message: "WhatsApp number must be a string.",
+            });
+        }
+
+        const normalizedWhatsapp = whatsappNumber?.trim() || "";
+        if (
+            normalizedWhatsapp &&
+            !/^\+[1-9]\d{7,14}$/.test(normalizedWhatsapp)
+        ) {
+            return res.status(400).json({
+                message: "WhatsApp number must include country code, e.g. +919876543210",
+            });
+        }
+
         const duplicate = await findStudentDuplicate({
             email: normalizedEmail,
             rollNo: parsedRollNo,
@@ -547,6 +568,7 @@ export const addStudent = async (req, res) => {
         const student = await Student.create({
             email: normalizedEmail,
             phone: typeof phone === "string" ? phone.trim() : "",
+            whatsappNumber: normalizedWhatsapp || null,
             isActivated: false,
             academicDetails: {
                 fullName: studentName,
@@ -634,7 +656,7 @@ export const getStudents = async (req, res) => {
 
         const students = await Student.find(filter)
             .select(
-                "email phone isActivated academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division createdAt updatedAt"
+                "email phone whatsappNumber isActivated academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division createdAt updatedAt"
             )
             .sort({ createdAt: -1 })
             .lean();
@@ -786,16 +808,22 @@ export const updateStudent = async (req, res) => {
             student.phone = phone.trim();
         }
         if (whatsappNumber !== undefined) {
-            if (
-                typeof whatsappNumber !== "string" ||
-                !/^\+[1-9]\d{7,14}$/.test(whatsappNumber.trim())
-            ) {
+            if (typeof whatsappNumber !== "string") {
                 return res.status(400).json({
                     message: "WhatsApp number must include country code, e.g. +919876543210",
                 });
             }
 
-            student.whatsappNumber = whatsappNumber.trim();
+            const normalizedWhatsapp = whatsappNumber.trim();
+            if (
+                normalizedWhatsapp &&
+                !/^\+[1-9]\d{7,14}$/.test(normalizedWhatsapp)
+            ) {
+                return res.status(400).json({
+                    message: "WhatsApp number must include country code, e.g. +919876543210",
+                });
+            }
+            student.whatsappNumber = normalizedWhatsapp || null;
         }
 
         const duplicate = await findStudentDuplicate({
@@ -1065,6 +1093,11 @@ export const bulkUploadStudents = async (req, res) => {
                 "mobileno",
                 "phonenumber",
             ]);
+            const whatsappNumber = getValue(row, [
+                "whatsapp",
+                "whatsappnumber",
+                "whatsappmobile",
+            ]);
 
             const rollNo = Number(rollText);
 
@@ -1086,6 +1119,14 @@ export const bulkUploadStudents = async (req, res) => {
                     "Roll number must be a positive whole number",
                     email
                 );
+                return;
+            }
+
+            if (
+                whatsappNumber &&
+                !/^\+[1-9]\d{7,14}$/.test(whatsappNumber)
+            ) {
+                fail("WhatsApp number must include country code, e.g. +919876543210", email);
                 return;
             }
 
@@ -1116,6 +1157,7 @@ export const bulkUploadStudents = async (req, res) => {
                 batch,
                 division,
                 phone,
+                whatsappNumber,
             });
         });
 
@@ -1151,6 +1193,7 @@ export const bulkUploadStudents = async (req, res) => {
                 const student = await Student.create({
                     email: row.email,
                     phone: row.phone,
+                    whatsappNumber: row.whatsappNumber || null,
                     isActivated: false,
                     academicDetails: {
                         fullName: row.name,
@@ -1704,16 +1747,17 @@ export const getStudentAttendanceHistory = async (req, res) => {
  */
 export const getAttendanceByDate = async (req, res) => {
     try {
-        const { date } = req.query;
+        const { date, professorId, subject, class: className } =
+            req.query;
 
-        // Validate date format
+        // Date is required
         if (
             typeof date !== "string" ||
             !/^\d{4}-\d{2}-\d{2}$/.test(date)
         ) {
             return res.status(400).json({
                 success: false,
-                message: "Please provide date in YYYY-MM-DD format.",
+                message: "Date is required in YYYY-MM-DD format.",
             });
         }
 
@@ -1732,15 +1776,55 @@ export const getAttendanceByDate = async (req, res) => {
         const endDate = new Date(startDate);
         endDate.setUTCDate(endDate.getUTCDate() + 1);
 
-        // Find completed lectures on the selected date
-        const lectures = await Lecture.find({
+        // Optional Professor ID validation
+        if (
+            professorId &&
+            !/^[a-f\d]{24}$/i.test(professorId)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Professor ID.",
+            });
+        }
+
+        // Only completed lectures are reported
+        const lectureFilter = {
             status: "completed",
             date: {
                 $gte: startDate,
                 $lt: endDate,
             },
-        })
-            .select("_id subject assignedClass date startTime endTime")
+        };
+
+        if (professorId) {
+            lectureFilter.professor = professorId;
+        }
+
+        if (subject?.trim()) {
+            lectureFilter.subject = {
+                $regex: subject.trim().replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&"
+                ),
+                $options: "i",
+            };
+        }
+
+        if (className?.trim()) {
+            lectureFilter.assignedClass = {
+                $regex: `^${className.trim().replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&"
+                )}$`,
+                $options: "i",
+            };
+        }
+
+        const lectures = await Lecture.find(lectureFilter)
+            .select(
+                "_id professor professorName subject assignedClass classroomName date startTime endTime status"
+            )
+            .sort({ startTime: 1 })
             .lean();
 
         if (lectures.length === 0) {
@@ -1749,104 +1833,107 @@ export const getAttendanceByDate = async (req, res) => {
                 date,
                 count: 0,
                 data: [],
-                message: "No completed lectures found for this date.",
+                message: "No completed lectures found for these filters.",
             });
         }
 
-        const lectureIds = lectures.map((lecture) => lecture._id);
-
-        // Count students by class
-        const classNames = [
-            ...new Set(
-                lectures
-                    .map((lecture) =>
-                        String(lecture.assignedClass || "").trim()
-                    )
-                    .filter(Boolean)
-            ),
-        ];
-
-        const students = await Student.find({
-            "academicDetails.class": {
-                $in: classNames,
-            },
-        })
-            .select("_id academicDetails.class")
+        // Get the student roster and attendance records
+        const students = await Student.find({})
+            .select(
+                "_id academicDetails.fullName academicDetails.rollNo academicDetails.class academicDetails.division"
+            )
             .lean();
 
-        const studentsByClass = new Map();
-
-        for (const student of students) {
-            const key = String(
-                student.academicDetails?.class || ""
-            ).trim().toLowerCase();
-
-            studentsByClass.set(
-                key,
-                (studentsByClass.get(key) || 0) + 1
-            );
-        }
+        const lectureIds = lectures.map((lecture) => lecture._id);
 
         const records = await Attendance.find({
             lecture: { $in: lectureIds },
         })
-            .select("student lecture status verificationStatus")
+            .select(
+                "student lecture status verificationStatus markedAt location verificationNote"
+            )
             .lean();
 
-        const attendanceByLecture = new Map();
+        const attendanceMap = new Map();
 
         for (const record of records) {
-            const key = record.lecture.toString();
-
-            if (!attendanceByLecture.has(key)) {
-                attendanceByLecture.set(key, []);
-            }
-
-            attendanceByLecture.get(key).push(record);
+            attendanceMap.set(
+                `${record.lecture.toString()}_${record.student.toString()}`,
+                record
+            );
         }
 
         const data = lectures.map((lecture) => {
-            const classKey = String(
+            const lectureClass = String(
                 lecture.assignedClass || ""
             ).trim().toLowerCase();
 
-            const totalStudents = studentsByClass.get(classKey) || 0;
-            const lectureRecords =
-                attendanceByLecture.get(lecture._id.toString()) || [];
-
-            const presentRecords = lectureRecords.filter(
-                (record) =>
-                    record.status === "present" ||
-                    (
-                        record.status === "flagged" &&
-                        record.verificationStatus === "approved"
-                    )
+            const classStudents = students.filter(
+                (student) =>
+                    String(student.academicDetails?.class || "")
+                        .trim()
+                        .toLowerCase() === lectureClass
             );
 
-            const pendingRecords = lectureRecords.filter(
-                (record) =>
-                    record.status === "flagged" &&
-                    record.verificationStatus === "pending"
-            );
+            let present = 0;
+            let absent = 0;
+            let pendingVerification = 0;
+            let rejected = 0;
 
-            const rejectedRecords = lectureRecords.filter(
-                (record) =>
-                    record.status === "flagged" &&
-                    record.verificationStatus === "rejected"
-            );
+            const studentReport = classStudents.map((student) => {
+                const key =
+                    `${lecture._id.toString()}_${student._id.toString()}`;
 
-            const present = presentRecords.length;
-            const pendingVerification = pendingRecords.length;
-            const rejected = rejectedRecords.length;
-            const absent = Math.max(
-                0,
-                totalStudents - present - pendingVerification - rejected
-            );
+                const record = attendanceMap.get(key);
+                let attendanceStatus = "absent";
+
+                if (record?.status === "present") {
+                    attendanceStatus = "present";
+                    present++;
+                } else if (
+                    record?.status === "flagged" &&
+                    record?.verificationStatus === "approved"
+                ) {
+                    attendanceStatus = "approved";
+                    present++;
+                } else if (
+                    record?.status === "flagged" &&
+                    record?.verificationStatus === "pending"
+                ) {
+                    attendanceStatus = "pending_verification";
+                    pendingVerification++;
+                } else if (
+                    record?.status === "flagged" &&
+                    record?.verificationStatus === "rejected"
+                ) {
+                    attendanceStatus = "rejected";
+                    rejected++;
+                } else {
+                    absent++;
+                }
+
+                return {
+                    studentId: student._id,
+                    rollNo: student.academicDetails?.rollNo ?? null,
+                    name: student.academicDetails?.fullName || "",
+                    class: student.academicDetails?.class || "",
+                    division: student.academicDetails?.division || "",
+                    status: attendanceStatus,
+                    markedAt: record?.markedAt || null,
+                    distanceMeters: record?.location?.distanceMeters ?? null,
+                    verificationNote: record?.verificationNote || "",
+                };
+            });
+
+            const totalStudents = classStudents.length;
 
             return {
                 lectureId: lecture._id,
+                professorId: lecture.professor,
+                professorName: lecture.professorName,
                 subject: lecture.subject,
                 class: lecture.assignedClass,
+                classroomName: lecture.classroomName,
                 date: lecture.date,
                 startTime: lecture.startTime,
                 endTime: lecture.endTime,
@@ -1861,6 +1948,7 @@ export const getAttendanceByDate = async (req, res) => {
                         : Number(
                             ((present / totalStudents) * 100).toFixed(2)
                         ),
+                students: studentReport,
             };
         });
 
@@ -1871,11 +1959,11 @@ export const getAttendanceByDate = async (req, res) => {
             data,
         });
     } catch (error) {
-        console.error("Get date-wise attendance error:", error);
+        console.error("Get date-wise attendance report error:", error);
 
         return res.status(500).json({
             success: false,
-            message: "Unable to fetch date-wise attendance.",
+            message: "Unable to fetch attendance report.",
         });
     }
 };

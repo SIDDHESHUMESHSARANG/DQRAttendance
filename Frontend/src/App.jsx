@@ -5,10 +5,32 @@ import "./App.css";
 import StudentManagement from "./components/StudentManagement";
 import ProfessorManagement from "./components/ProfessorManagement";
 import ClassroomManagement from "./components/ClassroomManagement";
+import AdminAttendance from "./components/AdminAttendance";
+import AdminOverview from "./components/AdminOverview";
 import Professor from "./Professor.jsx";
+import StudentPortal from "./StudentPortal.jsx";
+import { studentPortalService } from "./services/studentPortalService";
+import { API_BASE_URL } from "./services/apiConfig";
 
-const API_URL = "http://localhost:3000/api/admin";
-const PROFESSOR_API_URL = "http://localhost:3000/api/professors";
+const API_URL = `${API_BASE_URL}/admin`;
+const PROFESSOR_API_URL = `${API_BASE_URL}/professors`;
+
+function getStudentDeviceId() {
+  const key = "studentDeviceUuid";
+  let deviceId = localStorage.getItem(key);
+
+  if (!deviceId) {
+    deviceId =
+      window.crypto?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+
+    localStorage.setItem(key, deviceId);
+  }
+
+  return deviceId;
+}
 
 // Reusable API request function
 async function apiRequest(endpoint, body, baseURL = API_URL) {
@@ -119,15 +141,19 @@ function App() {
   };
 
   const dismissToast = (id) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
+    setToasts((current) =>
+      current.filter((toast) => toast.id !== id)
+    );
   };
 
-  // Listen for notifications from child components such as Professor.jsx.
+  // Listen for notifications from child components.
   useEffect(() => {
     const handleAppToast = (event) => {
       const detail = event.detail || {};
 
-      if (typeof detail.message !== "string" || !detail.message) return;
+      if (typeof detail.message !== "string" || !detail.message) {
+        return;
+      }
 
       const allowedTypes = ["success", "error", "warning", "info"];
       const type = allowedTypes.includes(detail.type)
@@ -144,7 +170,7 @@ function App() {
     };
   }, []);
 
-  // Restore the saved session when the page loads
+  // Restore saved session
   const [page, setPage] = useState(() => {
     try {
       if (
@@ -159,6 +185,10 @@ function App() {
         localStorage.getItem("professorData")
       ) {
         return "professorDashboard";
+      }
+
+      if (localStorage.getItem("studentToken")) {
+        return "studentDashboard";
       }
     } catch {
       return "roles";
@@ -253,15 +283,36 @@ function App() {
     setError("");
     setNotice("");
 
-    if (role === "student") {
-      const message = "Student login has not been connected yet.";
-      setError(message);
-      showToast(message, "warning");
-      setLoading(false);
-      return;
-    }
-
     try {
+      if (role === "student") {
+        const data = await studentPortalService.login(
+          email.trim(),
+          password,
+          getStudentDeviceId()
+        );
+
+        if (!data.token) {
+          throw new Error(
+            "Invalid response received from Student server."
+          );
+        }
+
+        localStorage.setItem("studentToken", data.token);
+
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminData");
+        localStorage.removeItem("professorToken");
+        localStorage.removeItem("professorData");
+
+        setAdmin(null);
+        setProfessor(null);
+        setPassword("");
+        setPage("studentDashboard");
+
+        showToast("Welcome back!", "success", "Login successful");
+        return;
+      }
+
       if (role === "admin") {
         const data = await apiRequest("/login", {
           email: email.trim(),
@@ -269,14 +320,20 @@ function App() {
         });
 
         if (!data.token || !data.admin) {
-          throw new Error("Invalid response received from Admin server.");
+          throw new Error(
+            "Invalid response received from Admin server."
+          );
         }
 
         localStorage.setItem("adminToken", data.token);
-        localStorage.setItem("adminData", JSON.stringify(data.admin));
+        localStorage.setItem(
+          "adminData",
+          JSON.stringify(data.admin)
+        );
 
         localStorage.removeItem("professorToken");
         localStorage.removeItem("professorData");
+        localStorage.removeItem("studentToken");
 
         setAdmin(data.admin);
         setProfessor(null);
@@ -285,7 +342,11 @@ function App() {
         setActiveSection("overview");
         setPage("dashboard");
 
-        showToast("Welcome back, " + (data.admin.name || "Admin") + "!", "success", "Login successful");
+        showToast(
+          `Welcome back, ${data.admin.name || "Admin"}!`,
+          "success",
+          "Login successful"
+        );
       } else if (role === "professor") {
         const data = await apiRequest(
           "/login",
@@ -297,7 +358,9 @@ function App() {
         );
 
         if (!data.token || !data.professor) {
-          throw new Error("Invalid response received from Professor server.");
+          throw new Error(
+            "Invalid response received from Professor server."
+          );
         }
 
         localStorage.setItem("professorToken", data.token);
@@ -308,6 +371,7 @@ function App() {
 
         localStorage.removeItem("adminToken");
         localStorage.removeItem("adminData");
+        localStorage.removeItem("studentToken");
 
         setProfessor(data.professor);
         setAdmin(null);
@@ -316,7 +380,7 @@ function App() {
         setPage("professorDashboard");
 
         showToast(
-          "Welcome back, " + (data.professor.name || "Professor") + "!",
+          `Welcome back, ${data.professor.name || "Professor"}!`,
           "success",
           "Login successful"
         );
@@ -353,9 +417,15 @@ function App() {
         setPassword("");
         setOtp("");
         setPage("verify");
-        setNotice("OTP sent successfully. Check your registered email.");
+        setNotice(
+          "OTP sent successfully. Check your registered email."
+        );
 
-        showToast("Check your registered email for the OTP.", "success", "OTP sent");
+        showToast(
+          "Check your registered email for the OTP.",
+          "success",
+          "OTP sent"
+        );
       } else if (role === "professor") {
         // Professor email must already be registered by Admin.
         await apiRequest(
@@ -369,13 +439,31 @@ function App() {
         setPassword("");
         setOtp("");
         setPage("verify");
-        setNotice("OTP sent successfully. Check your registered email.");
+        setNotice(
+          "OTP sent successfully. Check your registered email."
+        );
 
-        showToast("Check your registered email for the OTP.", "success", "OTP sent");
+        showToast(
+          "Check your registered email for the OTP.",
+          "success",
+          "OTP sent"
+        );
       } else {
-        const message = "Student registration has not been connected yet.";
-        setError(message);
-        showToast(message, "warning");
+        // Student email must already be registered by Admin.
+        await studentPortalService.requestOtp(email.trim());
+
+        setPassword("");
+        setOtp("");
+        setPage("verify");
+        setNotice(
+          "Activation OTP sent. Check your registered email."
+        );
+
+        showToast(
+          "Check your registered email for the OTP.",
+          "success",
+          "OTP sent"
+        );
       }
     } catch (err) {
       const message =
@@ -409,12 +497,20 @@ function App() {
         setOtp("");
         setName("");
         setPage("login");
-        setNotice("Account verified successfully. You can now sign in.");
+        setNotice(
+          "Account verified successfully. You can now sign in."
+        );
 
-        showToast("Your Admin account is verified.", "success", "Verification successful");
+        showToast(
+          "Your Admin account is verified.",
+          "success",
+          "Verification successful"
+        );
       } else if (role === "professor") {
         if (password.length < 8) {
-          throw new Error("Password must be at least 8 characters long.");
+          throw new Error(
+            "Password must be at least 8 characters long."
+          );
         }
 
         await apiRequest(
@@ -430,13 +526,40 @@ function App() {
         setPassword("");
         setOtp("");
         setPage("login");
-        setNotice("Account activated successfully. You can now sign in.");
+        setNotice(
+          "Account activated successfully. You can now sign in."
+        );
 
-        showToast("Your Professor account is activated.", "success", "Account activated");
+        showToast(
+          "Your Professor account is activated.",
+          "success",
+          "Account activated"
+        );
       } else {
-        const message = "Student OTP verification has not been connected yet.";
-        setError(message);
-        showToast(message, "warning");
+        if (password.length < 8) {
+          throw new Error(
+            "Password must be at least 8 characters long."
+          );
+        }
+
+        await studentPortalService.verifyOtp(
+          email.trim(),
+          otp.trim(),
+          password
+        );
+
+        setPassword("");
+        setOtp("");
+        setPage("login");
+        setNotice(
+          "Account activated successfully. You can now sign in."
+        );
+
+        showToast(
+          "Your Student account is activated.",
+          "success",
+          "Account activated"
+        );
       }
     } catch (err) {
       const message =
@@ -471,6 +594,7 @@ function App() {
       localStorage.removeItem("adminData");
       localStorage.removeItem("professorToken");
       localStorage.removeItem("professorData");
+      localStorage.removeItem("studentToken");
 
       setAdmin(null);
       setProfessor(null);
@@ -485,7 +609,11 @@ function App() {
       setError("");
       setNotice("");
 
-      showToast("You have signed out successfully.", "success", "Logged out");
+      showToast(
+        "You have signed out successfully.",
+        "success",
+        "Logged out"
+      );
     }
   };
 
@@ -505,7 +633,29 @@ function App() {
     setError("");
     setNotice("");
 
-    showToast("You have signed out successfully.", "success", "Logged out");
+    showToast(
+      "You have signed out successfully.",
+      "success",
+      "Logged out"
+    );
+  };
+
+  // Student logout
+  const handleStudentLogout = () => {
+    localStorage.removeItem("studentToken");
+
+    setEmail("");
+    setPassword("");
+    setRole("student");
+    setPage("roles");
+    setError("");
+    setNotice("");
+
+    showToast(
+      "You have signed out successfully.",
+      "success",
+      "Logged out"
+    );
   };
 
   // Return to role selection
@@ -526,17 +676,33 @@ function App() {
     setNotice("");
   };
 
-  // PROFESSOR DASHBOARD
+  // Professor dashboard
   if (page === "professorDashboard" && professor) {
     return (
       <>
-        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <ToastContainer
+          toasts={toasts}
+          onDismiss={dismissToast}
+        />
         <Professor onLogout={handleProfessorLogout} />
       </>
     );
   }
 
-  // ADMIN DASHBOARD
+  // Student dashboard
+  if (page === "studentDashboard") {
+    return (
+      <>
+        <ToastContainer
+          toasts={toasts}
+          onDismiss={dismissToast}
+        />
+        <StudentPortal onLogout={handleStudentLogout} />
+      </>
+    );
+  }
+
+  // Admin dashboard
   if (page === "dashboard" && admin) {
     const adminName = admin.name || "Admin";
 
@@ -557,7 +723,10 @@ function App() {
 
     return (
       <>
-        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <ToastContainer
+          toasts={toasts}
+          onDismiss={dismissToast}
+        />
 
         <main className="dashboard-shell">
           <aside
@@ -580,9 +749,14 @@ function App() {
               </span>
             </a>
 
-            <div className="sidebar-section-label">WORKSPACE</div>
+            <div className="sidebar-section-label">
+              WORKSPACE
+            </div>
 
-            <nav className="dashboard-nav" aria-label="Admin navigation">
+            <nav
+              className="dashboard-nav"
+              aria-label="Admin navigation"
+            >
               <button
                 type="button"
                 className={`dashboard-nav-item ${
@@ -594,7 +768,9 @@ function App() {
                 <span>Overview</span>
               </button>
 
-              <div className="sidebar-section-label">MANAGEMENT</div>
+              <div className="sidebar-section-label">
+                MANAGEMENT
+              </div>
 
               <button
                 type="button"
@@ -643,7 +819,10 @@ function App() {
 
             <div className="sidebar-bottom">
               <div className="sidebar-admin">
-                <span className="admin-avatar">{initials || "A"}</span>
+                <span className="admin-avatar">
+                  {initials || "A"}
+                </span>
+
                 <span className="sidebar-admin-info">
                   <strong>{adminName}</strong>
                   <small>Administrator</small>
@@ -701,13 +880,17 @@ function App() {
                   <span className="status-dot" />
                   Signed in
                 </div>
+
                 <div className="topbar-avatar" title={adminName}>
                   {initials || "A"}
                 </div>
               </div>
             </header>
 
-            <div className="dashboard-content" id="dashboard-overview">
+            <div
+              className="dashboard-content"
+              id="dashboard-overview"
+            >
               {activeSection === "students" ? (
                 <StudentManagement
                   onBack={() => openSection("overview")}
@@ -720,18 +903,27 @@ function App() {
                 <ClassroomManagement
                   onBack={() => openSection("overview")}
                 />
+              ) : activeSection === "attendance" ? (
+                <AdminAttendance
+                  onBack={() => openSection("overview")}
+                />
               ) : activeSection === "overview" ? (
                 <>
                   <section className="dashboard-greeting">
                     <div>
-                      <p className="dashboard-overline">OVERVIEW</p>
+                      <p className="dashboard-overline">
+                        OVERVIEW
+                      </p>
                       <h2>Welcome back, {adminName}</h2>
                       <p>
                         Manage your attendance system from one place.
                       </p>
                     </div>
 
-                    <div className="greeting-mark" aria-hidden="true">
+                    <div
+                      className="greeting-mark"
+                      aria-hidden="true"
+                    >
                       <span>Q</span>
                     </div>
                   </section>
@@ -740,7 +932,9 @@ function App() {
                     <div className="section-heading">
                       <div>
                         <h3>Account overview</h3>
-                        <p>Your administrator account information.</p>
+                        <p>
+                          Your administrator account information.
+                        </p>
                       </div>
 
                       <span className="account-status">
@@ -757,21 +951,29 @@ function App() {
 
                         <div className="account-primary-info">
                           <h4>{adminName}</h4>
-                          <p>{admin.email || "Email not available"}</p>
+                          <p>
+                            {admin.email || "Email not available"}
+                          </p>
                         </div>
 
-                        <span className="account-role-badge">ADMIN</span>
+                        <span className="account-role-badge">
+                          ADMIN
+                        </span>
                       </div>
 
                       <div className="account-detail-grid">
                         <div className="account-detail">
                           <span>FULL NAME</span>
-                          <strong>{admin.name || "Not provided"}</strong>
+                          <strong>
+                            {admin.name || "Not provided"}
+                          </strong>
                         </div>
 
                         <div className="account-detail">
                           <span>EMAIL ADDRESS</span>
-                          <strong>{admin.email || "Not provided"}</strong>
+                          <strong>
+                            {admin.email || "Not provided"}
+                          </strong>
                         </div>
 
                         <div className="account-detail">
@@ -786,7 +988,9 @@ function App() {
                     <div className="section-heading">
                       <div>
                         <h3>Management workspace</h3>
-                        <p>Administration modules for your system.</p>
+                        <p>
+                          Administration modules for your system.
+                        </p>
                       </div>
                     </div>
 
@@ -797,7 +1001,10 @@ function App() {
                         tabIndex={0}
                         onClick={() => openSection("students")}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            event.key === "Enter" ||
+                            event.key === " "
+                          ) {
                             event.preventDefault();
                             openSection("students");
                           }
@@ -809,7 +1016,9 @@ function App() {
                         </span>
                         <div>
                           <h4>Students</h4>
-                          <p>Student records and bulk uploads.</p>
+                          <p>
+                            Student records and bulk uploads.
+                          </p>
                         </div>
                         <span className="module-status">Open</span>
                       </article>
@@ -820,7 +1029,10 @@ function App() {
                         tabIndex={0}
                         onClick={() => openSection("professors")}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            event.key === "Enter" ||
+                            event.key === " "
+                          ) {
                             event.preventDefault();
                             openSection("professors");
                           }
@@ -832,7 +1044,9 @@ function App() {
                         </span>
                         <div>
                           <h4>Professors</h4>
-                          <p>Professor records and registration.</p>
+                          <p>
+                            Professor records and registration.
+                          </p>
                         </div>
                         <span className="module-status">Open</span>
                       </article>
@@ -843,7 +1057,10 @@ function App() {
                         tabIndex={0}
                         onClick={() => openSection("classrooms")}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            event.key === "Enter" ||
+                            event.key === " "
+                          ) {
                             event.preventDefault();
                             openSection("classrooms");
                           }
@@ -856,7 +1073,8 @@ function App() {
                         <div>
                           <h4>Classrooms</h4>
                           <p>
-                            Manage classroom locations and attendance radius.
+                            Manage classroom locations and attendance
+                            radius.
                           </p>
                         </div>
                         <span className="module-status">Open</span>
@@ -868,7 +1086,10 @@ function App() {
                         tabIndex={0}
                         onClick={() => openSection("attendance")}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            event.key === "Enter" ||
+                            event.key === " "
+                          ) {
                             event.preventDefault();
                             openSection("attendance");
                           }
@@ -880,7 +1101,9 @@ function App() {
                         </span>
                         <div>
                           <h4>Attendance</h4>
-                          <p>Attendance records and reports.</p>
+                          <p>
+                            Attendance records and reports.
+                          </p>
                         </div>
                         <span className="module-status">Open</span>
                       </article>
@@ -896,9 +1119,16 @@ function App() {
                 <section className="dashboard-section">
                   <div className="section-heading">
                     <div>
-                      <p className="dashboard-overline">MANAGEMENT</p>
-                      <h3>{sectionTitles[activeSection]}</h3>
-                      <p>This module has not been connected yet.</p>
+                      <p className="dashboard-overline">
+                        MANAGEMENT
+                      </p>
+                      <h3>
+                        {sectionTitles[activeSection] || "Overview"}
+                      </h3>
+                      <p>
+                        Select a workspace section from the navigation
+                        menu.
+                      </p>
                     </div>
                   </div>
 
@@ -918,10 +1148,13 @@ function App() {
     );
   }
 
-  // ROLE SELECTION, LOGIN, REGISTRATION AND OTP
+  // Role selection, login, registration and OTP verification
   return (
     <>
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={dismissToast}
+      />
 
       <main className="auth-page">
         <header className="auth-header">
@@ -965,7 +1198,9 @@ function App() {
                     {item.icon}
                   </span>
 
-                  <span className="role-card-title">{item.title}</span>
+                  <span className="role-card-title">
+                    {item.title}
+                  </span>
 
                   <span className="role-card-description">
                     {item.description}
@@ -982,7 +1217,9 @@ function App() {
           <section className="auth-layout">
             <aside className="intro-panel">
               <div className="intro-content">
-                <span className="intro-tag">QR ATTENDANCE SYSTEM</span>
+                <span className="intro-tag">
+                  QR ATTENDANCE SYSTEM
+                </span>
 
                 <h1>
                   Attendance
@@ -1011,7 +1248,9 @@ function App() {
                 </div>
               </div>
 
-              <p className="intro-footer">QR ATTENDANCE SYSTEM</p>
+              <p className="intro-footer">
+                QR ATTENDANCE SYSTEM
+              </p>
             </aside>
 
             <section className="form-panel">
@@ -1038,12 +1277,15 @@ function App() {
                     <h2>Login</h2>
 
                     <p className="form-description">
-                      Sign in to your {roleDetails[role].title.toLowerCase()}{" "}
-                      account.
+                      Sign in to your{" "}
+                      {roleDetails[role].title.toLowerCase()} account.
                     </p>
 
                     {notice && (
-                      <p className="message success-message" role="status">
+                      <p
+                        className="message success-message"
+                        role="status"
+                      >
                         {notice}
                       </p>
                     )}
@@ -1059,7 +1301,9 @@ function App() {
                           type="email"
                           placeholder="you@example.com"
                           value={email}
-                          onChange={(event) => setEmail(event.target.value)}
+                          onChange={(event) =>
+                            setEmail(event.target.value)
+                          }
                           autoComplete="username"
                           required
                         />
@@ -1096,7 +1340,10 @@ function App() {
                       </div>
 
                       {error && (
-                        <p className="message error-message" role="alert">
+                        <p
+                          className="message error-message"
+                          role="alert"
+                        >
                           {error}
                         </p>
                       )}
@@ -1107,7 +1354,9 @@ function App() {
                         disabled={loading}
                       >
                         {loading ? "Signing in..." : "Login"}
-                        {!loading && <span aria-hidden="true"> →</span>}
+                        {!loading && (
+                          <span aria-hidden="true"> →</span>
+                        )}
                       </button>
                     </form>
 
@@ -1141,7 +1390,7 @@ function App() {
                         ? "Enter your details to create an Admin account."
                         : role === "professor"
                         ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
-                        : "Student registration has not been connected yet."}
+                        : "Activate the student account created for you by your Admin using your registered email."}
                     </p>
 
                     <form onSubmit={handleRegister}>
@@ -1156,7 +1405,9 @@ function App() {
                             type="text"
                             placeholder="Enter your full name"
                             value={name}
-                            onChange={(event) => setName(event.target.value)}
+                            onChange={(event) =>
+                              setName(event.target.value)
+                            }
                             autoComplete="name"
                             required
                           />
@@ -1173,7 +1424,9 @@ function App() {
                           type="email"
                           placeholder="Enter your registered email"
                           value={email}
-                          onChange={(event) => setEmail(event.target.value)}
+                          onChange={(event) =>
+                            setEmail(event.target.value)
+                          }
                           autoComplete="email"
                           required
                         />
@@ -1188,7 +1441,9 @@ function App() {
                           <div className="password-field">
                             <input
                               id="register-password"
-                              type={showPassword ? "text" : "password"}
+                              type={
+                                showPassword ? "text" : "password"
+                              }
                               placeholder="At least 8 characters"
                               value={password}
                               onChange={(event) =>
@@ -1213,7 +1468,10 @@ function App() {
                       )}
 
                       {error && (
-                        <p className="message error-message" role="alert">
+                        <p
+                          className="message error-message"
+                          role="alert"
+                        >
                           {error}
                         </p>
                       )}
@@ -1221,10 +1479,12 @@ function App() {
                       <button
                         className="primary-button"
                         type="submit"
-                        disabled={loading || role === "student"}
+                        disabled={loading}
                       >
                         {loading ? "Please wait..." : "Send OTP"}
-                        {!loading && <span aria-hidden="true"> →</span>}
+                        {!loading && (
+                          <span aria-hidden="true"> →</span>
+                        )}
                       </button>
                     </form>
 
@@ -1253,12 +1513,16 @@ function App() {
                     <h2>Verify your email</h2>
 
                     <p className="form-description">
-                      Enter the 6-digit OTP sent to <strong>{email}</strong>.
-                      The code expires after 3 minutes.
+                      Enter the 6-digit OTP sent to{" "}
+                      <strong>{email}</strong>. The code expires after
+                      3 minutes.
                     </p>
 
                     {notice && (
-                      <p className="message success-message" role="status">
+                      <p
+                        className="message success-message"
+                        role="status"
+                      >
                         {notice}
                       </p>
                     )}
@@ -1279,7 +1543,9 @@ function App() {
                           value={otp}
                           onChange={(event) =>
                             setOtp(
-                              event.target.value.replace(/\D/g, "").slice(0, 6)
+                              event.target.value
+                                .replace(/\D/g, "")
+                                .slice(0, 6)
                             )
                           }
                           pattern="[0-9]{6}"
@@ -1289,16 +1555,19 @@ function App() {
                         />
                       </div>
 
-                      {role === "professor" && (
+                      {(role === "professor" ||
+                        role === "student") && (
                         <div className="form-group">
-                          <label htmlFor="professor-new-password">
+                          <label htmlFor="account-new-password">
                             Create password
                           </label>
 
                           <div className="password-field">
                             <input
-                              id="professor-new-password"
-                              type={showPassword ? "text" : "password"}
+                              id="account-new-password"
+                              type={
+                                showPassword ? "text" : "password"
+                              }
                               placeholder="At least 8 characters"
                               value={password}
                               onChange={(event) =>
@@ -1323,7 +1592,10 @@ function App() {
                       )}
 
                       {error && (
-                        <p className="message error-message" role="alert">
+                        <p
+                          className="message error-message"
+                          role="alert"
+                        >
                           {error}
                         </p>
                       )}
@@ -1334,20 +1606,23 @@ function App() {
                         disabled={
                           loading ||
                           otp.length !== 6 ||
-                          (role === "professor" && password.length < 8)
+                          ((role === "professor" ||
+                            role === "student") &&
+                            password.length < 8)
                         }
                       >
                         {loading
                           ? "Verifying..."
-                          : role === "professor"
+                          : role === "professor" ||
+                            role === "student"
                           ? "Verify OTP and create password"
                           : "Verify email"}
                       </button>
                     </form>
 
                     <p className="otp-help">
-                      If the OTP expires, return to registration and request
-                      another code.
+                      If the OTP expires, return to registration and
+                      request another code.
                     </p>
                   </>
                 )}

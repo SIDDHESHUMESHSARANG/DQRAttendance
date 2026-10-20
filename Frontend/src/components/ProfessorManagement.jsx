@@ -142,7 +142,7 @@ function ProfessorManagement({ onBack }) {
   }, []);
 
   useEffect(() => {
-    loadProfessors();
+    Promise.resolve().then(loadProfessors);
   }, [loadProfessors]);
 
   const handleSearch = (event) => {

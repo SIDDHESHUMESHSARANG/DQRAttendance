@@ -1,3 +1,4 @@
+
 import express from "express";
 import connectDB from "./config/db.js";
 import dotenv from "dotenv";
@@ -22,8 +23,6 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests without an Origin header,
-      // such as local health checks.
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -46,7 +45,7 @@ app.use("/api/classrooms", classroomRoutes);
 
 // Health check
 app.get("/", (req, res) => {
-  res.send("QR Based Attendance System Backend Running");
+  res.send("DQRAttendance Backend Running");
 });
 
 const PORT = process.env.PORT || 3000;
@@ -55,7 +54,6 @@ const startServer = async () => {
   try {
     await connectDB();
 
-    // Listen only on this computer
     app.listen(PORT, "127.0.0.1", () => {
       console.log(`Server running at http://127.0.0.1:${PORT}`);
       console.log(`Health check: http://localhost:${PORT}`);

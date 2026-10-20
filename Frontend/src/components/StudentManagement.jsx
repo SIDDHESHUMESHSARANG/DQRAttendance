@@ -12,22 +12,23 @@ const emptyForm = {
   class: "",
   division: "",
   phone: "",
+  whatsappNumber: "",
 };
 
 function getStudentId(student) {
-  return student.id || student._id;
+  return student?.id || student?._id || "";
 }
 
 function getErrorMessage(error) {
   return error instanceof TypeError
     ? "Backend se connection nahi ho raha. Server check karein."
-    : error.message || "Kuch galat ho gaya. Dobara try karein.";
+    : error?.message || "Kuch galat ho gaya. Dobara try karein.";
 }
 
 function downloadSampleCSV() {
   const csv = [
-    "Name,Roll No,Class,Division,Email,Batch,Phone",
-    "Rahul Sharma,1,TYBCA,A,rahul@example.com,2026,9876543210",
+    "Name,Roll No,Class,Division,Email,Batch,Phone,WhatsApp Number",
+    "Rahul Sharma,1,TYBCA,A,rahul@example.com,2026,9876543210,+919876543210",
   ].join("\r\n");
 
   const blob = new Blob(["\uFEFF", csv], {
@@ -39,7 +40,9 @@ function downloadSampleCSV() {
 
   anchor.href = url;
   anchor.download = "student-upload-template.csv";
+  document.body.appendChild(anchor);
   anchor.click();
+  anchor.remove();
 
   URL.revokeObjectURL(url);
 }
@@ -50,12 +53,13 @@ function StudentManagement({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState(null);
+  const [resettingDeviceId, setResettingDeviceId] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const [showForm, setShowForm] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({ ...emptyForm });
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -73,7 +77,16 @@ function StudentManagement({ onBack }) {
 
     try {
       const result = await studentService.getStudents(searchValue);
-      setStudents(Array.isArray(result.students) ? result.students : []);
+
+      setStudents(
+        Array.isArray(result?.students)
+          ? result.students
+          : Array.isArray(result?.data?.students)
+            ? result.data.students
+            : Array.isArray(result?.data)
+              ? result.data
+              : []
+      );
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -93,7 +106,7 @@ function StudentManagement({ onBack }) {
 
   const openAddForm = () => {
     setEditingStudent(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm });
     setError("");
     setNotice("");
     setShowForm(true);
@@ -101,6 +114,7 @@ function StudentManagement({ onBack }) {
 
   const openEditForm = (student) => {
     setEditingStudent(student);
+
     setForm({
       name: student.name || "",
       email: student.email || "",
@@ -109,16 +123,20 @@ function StudentManagement({ onBack }) {
       class: student.class || "",
       division: student.division || "",
       phone: student.phone || "",
+      whatsappNumber: student.whatsappNumber || "",
     });
+
     setError("");
     setNotice("");
     setShowForm(true);
   };
 
   const closeForm = () => {
+    if (saving) return;
+
     setShowForm(false);
     setEditingStudent(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm });
   };
 
   const handleFormChange = (event) => {
@@ -132,6 +150,26 @@ function StudentManagement({ onBack }) {
 
   const handleSaveStudent = async (event) => {
     event.preventDefault();
+
+    if (saving) return;
+
+    const rollNo = Number(form.rollNo);
+
+    if (
+      !form.name.trim() ||
+      !form.email.trim() ||
+      !Number.isInteger(rollNo) ||
+      rollNo < 1 ||
+      !form.class.trim() ||
+      !form.division.trim()
+    ) {
+      const message =
+        "Name, valid Roll Number, Email, Class aur Division check karein.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
     setSaving(true);
     setError("");
     setNotice("");
@@ -139,30 +177,39 @@ function StudentManagement({ onBack }) {
     const payload = {
       name: form.name.trim(),
       email: form.email.trim(),
-      rollNo: Number(form.rollNo),
+      rollNo,
       batch: form.batch.trim(),
       class: form.class.trim(),
       division: form.division.trim(),
       phone: form.phone.trim(),
+      whatsappNumber: form.whatsappNumber.trim(),
     };
 
     try {
+      let result;
+
       if (editingStudent) {
-        await studentService.updateStudent(
+        result = await studentService.updateStudent(
           getStudentId(editingStudent),
           payload
         );
-
-        setNotice("Student details updated successfully.");
-        toast.success("Student details updated successfully.");
       } else {
-        await studentService.addStudent(payload);
-
-        setNotice("Student added successfully.");
-        toast.success("Student added successfully.");
+        result = await studentService.addStudent(payload);
       }
 
-      closeForm();
+      const message =
+        result?.message ||
+        (editingStudent
+          ? "Student details updated successfully."
+          : "Student added successfully.");
+
+      setNotice(message);
+      toast.success(message);
+
+      setShowForm(false);
+      setEditingStudent(null);
+      setForm({ ...emptyForm });
+
       await loadStudents(search);
     } catch (err) {
       const message = getErrorMessage(err);
@@ -212,7 +259,7 @@ function StudentManagement({ onBack }) {
 
     try {
       const result = await studentService.deleteStudent(studentId);
-      const message = result.message || "Student deleted successfully.";
+      const message = result?.message || "Student deleted successfully.";
 
       setNotice(message);
       toast.success(message);
@@ -228,11 +275,68 @@ function StudentManagement({ onBack }) {
     }
   };
 
+  const handleResetTrustedDevice = async (student) => {
+    const studentId = getStudentId(student);
+
+    if (!studentId) {
+      const message =
+        "Student ID is missing. Trusted device was not reset.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reset the trusted device for ${
+        student.name || "this student"
+      }? They will be able to sign in from a new device.`
+    );
+
+    if (!confirmed) return;
+
+    setResettingDeviceId(studentId);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await studentService.resetTrustedDevice(studentId);
+      const message =
+        result?.message || "Trusted device reset successfully.";
+
+      setNotice(message);
+      toast.success(message);
+    } catch (requestError) {
+      const message = getErrorMessage(requestError);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setResettingDeviceId(null);
+    }
+  };
+
   const handleUpload = async (event) => {
     event.preventDefault();
 
+    if (uploading) return;
+
     if (!selectedFile) {
       const message = "Pehle CSV ya Excel file select karein.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
+    const allowedExtensions = /\.(csv|xlsx|xls)$/i;
+
+    if (!allowedExtensions.test(selectedFile.name)) {
+      const message = "Sirf CSV, XLSX ya XLS file upload karein.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      const message = "File size 5 MB se kam honi chahiye.";
       setError(message);
       toast.error(message);
       return;
@@ -247,8 +351,9 @@ function StudentManagement({ onBack }) {
       const result = await studentService.bulkUpload(selectedFile);
 
       setUploadResult(result);
-      setNotice(result.message || "Bulk upload request completed.");
-      toast.success(result.message || "Bulk upload request completed.");
+      setNotice(result?.message || "Bulk upload request completed.");
+      toast.success(result?.message || "Bulk upload request completed.");
+
       setSelectedFile(null);
 
       const fileInput = document.getElementById("student-bulk-file");
@@ -265,17 +370,24 @@ function StudentManagement({ onBack }) {
   };
 
   const openAttendanceHistory = async (student) => {
+    const studentId = getStudentId(student);
+
+    if (!studentId) {
+      const message = "Student ID nahi mili. Attendance history load nahi ho sakti.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
     setHistoryStudent(student);
     setHistory(null);
     setHistoryLoading(true);
     setError("");
 
     try {
-      const result = await studentService.getAttendanceHistory(
-        getStudentId(student)
-      );
+      const result = await studentService.getAttendanceHistory(studentId);
 
-      setHistory(result.data || result);
+      setHistory(result?.data || result);
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -286,13 +398,17 @@ function StudentManagement({ onBack }) {
   };
 
   const closeAttendanceHistory = () => {
+    if (historyLoading) return;
+
     setHistoryStudent(null);
     setHistory(null);
   };
 
   useEffect(() => {
     const modalOpen =
-      showForm || Boolean(historyStudent) || Boolean(confirmDeleteStudent);
+      showForm ||
+      Boolean(historyStudent) ||
+      Boolean(confirmDeleteStudent);
 
     if (!modalOpen) return undefined;
 
@@ -302,9 +418,12 @@ function StudentManagement({ onBack }) {
       if (confirmDeleteStudent && !deletingStudentId) {
         setConfirmDeleteStudent(null);
       } else if (historyStudent && !historyLoading) {
-        closeAttendanceHistory();
+        setHistoryStudent(null);
+        setHistory(null);
       } else if (showForm && !saving) {
-        closeForm();
+        setShowForm(false);
+        setEditingStudent(null);
+        setForm({ ...emptyForm });
       }
     };
 
@@ -334,6 +453,7 @@ function StudentManagement({ onBack }) {
           padding: "0 16px",
         }}
         toastOptions={{
+          duration: 2000,
           style: {
             maxWidth: "100%",
             minWidth: "0",
@@ -448,6 +568,7 @@ function StudentManagement({ onBack }) {
                 <th>Batch</th>
                 <th>Email</th>
                 <th>Phone</th>
+                <th>WhatsApp</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -455,7 +576,7 @@ function StudentManagement({ onBack }) {
             <tbody>
               {!loading && students.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="sm-empty">
+                  <td colSpan={8} className="sm-empty">
                     <span className="sm-empty-icon" aria-hidden="true">
                       ◌
                     </span>
@@ -486,6 +607,7 @@ function StudentManagement({ onBack }) {
                   <td>{student.batch || "—"}</td>
                   <td className="sm-email-cell">{student.email || "—"}</td>
                   <td>{student.phone || "—"}</td>
+                  <td>{student.whatsappNumber || "—"}</td>
 
                   <td>
                     <div className="sm-actions">
@@ -501,8 +623,22 @@ function StudentManagement({ onBack }) {
                         type="button"
                         className="sm-action-button sm-history-action"
                         onClick={() => openAttendanceHistory(student)}
+                        disabled={historyLoading}
                       >
                         History
+                      </button>
+
+                      <button
+                        type="button"
+                        className="sm-action-button sm-device-action"
+                        onClick={() => handleResetTrustedDevice(student)}
+                        disabled={
+                          resettingDeviceId === getStudentId(student)
+                        }
+                      >
+                        {resettingDeviceId === getStudentId(student)
+                          ? "Resetting..."
+                          : "Reset device"}
                       </button>
 
                       <button
@@ -522,7 +658,7 @@ function StudentManagement({ onBack }) {
 
               {loading && (
                 <tr>
-                  <td colSpan="7" className="sm-empty">
+                  <td colSpan={8} className="sm-empty">
                     <span className="sm-loading-spinner" />
                     <strong>Loading student records...</strong>
                   </td>
@@ -536,7 +672,9 @@ function StudentManagement({ onBack }) {
           <span>
             {loading
               ? "Fetching records..."
-              : `Showing ${students.length} student record${students.length === 1 ? "" : "s"}`}
+              : `Showing ${students.length} student record${
+                  students.length === 1 ? "" : "s"
+                }`}
           </span>
           <span>Scroll horizontally to view all columns.</span>
         </div>
@@ -548,6 +686,8 @@ function StudentManagement({ onBack }) {
             <h3>Bulk upload</h3>
             <p>
               Import student records from a CSV or Excel spreadsheet.
+              WhatsApp Number is optional; include the country code (for
+              example, +919876543210) to enable attendance reminders.
               Maximum file size: 5 MB.
             </p>
           </div>
@@ -577,6 +717,7 @@ function StudentManagement({ onBack }) {
             onChange={(event) =>
               setSelectedFile(event.target.files?.[0] || null)
             }
+            disabled={uploading}
           />
 
           {selectedFile && (
@@ -588,9 +729,10 @@ function StudentManagement({ onBack }) {
                 className="sm-remove-file"
                 onClick={() => {
                   setSelectedFile(null);
-                  const fileInput = document.getElementById(
-                    "student-bulk-file"
-                  );
+
+                  const fileInput =
+                    document.getElementById("student-bulk-file");
+
                   if (fileInput) fileInput.value = "";
                 }}
                 aria-label="Remove selected file"
@@ -680,6 +822,7 @@ function StudentManagement({ onBack }) {
                 className="sm-close-button"
                 aria-label="Close form"
                 onClick={closeForm}
+                disabled={saving}
               >
                 ×
               </button>
@@ -758,7 +901,7 @@ function StudentManagement({ onBack }) {
                     name="batch"
                     value={form.batch}
                     onChange={handleFormChange}
-                    placeholder="e.g. B1,B2"
+                    placeholder="e.g. B1, B2"
                   />
                 </div>
 
@@ -772,6 +915,24 @@ function StudentManagement({ onBack }) {
                     onChange={handleFormChange}
                     placeholder="Enter phone number"
                   />
+                </div>
+
+                <div className="sm-form-group sm-full-width">
+                  <label htmlFor="sm-whatsapp">WhatsApp number</label>
+                  <input
+                    id="sm-whatsapp"
+                    name="whatsappNumber"
+                    type="tel"
+                    value={form.whatsappNumber}
+                    onChange={handleFormChange}
+                    placeholder="+919876543210"
+                    pattern="\\+[1-9][0-9]{7,14}"
+                    title="Include country code, for example +919876543210"
+                  />
+                  <small>
+                    Optional. Use international format with a + and country
+                    code.
+                  </small>
                 </div>
               </div>
 
@@ -843,6 +1004,7 @@ function StudentManagement({ onBack }) {
                 className="sm-close-button"
                 aria-label="Close attendance history"
                 onClick={closeAttendanceHistory}
+                disabled={historyLoading}
               >
                 ×
               </button>
@@ -895,7 +1057,7 @@ function StudentManagement({ onBack }) {
                     <tbody>
                       {(history.attendanceHistory || []).length === 0 ? (
                         <tr>
-                          <td colSpan="3" className="sm-empty">
+                          <td colSpan={3} className="sm-empty">
                             No attendance history found.
                           </td>
                         </tr>
@@ -904,11 +1066,13 @@ function StudentManagement({ onBack }) {
                           <tr key={record._id || record.id || index}>
                             <td>
                               {record.date
-                                ? new Date(record.date).toLocaleDateString()
+                                ? new Date(record.date).toLocaleDateString(
+                                    "en-IN"
+                                  )
                                 : record.createdAt
                                   ? new Date(
                                       record.createdAt
-                                    ).toLocaleDateString()
+                                    ).toLocaleDateString("en-IN")
                                   : "—"}
                             </td>
                             <td>
@@ -942,6 +1106,7 @@ function StudentManagement({ onBack }) {
                 type="button"
                 className="sm-secondary-button"
                 onClick={closeAttendanceHistory}
+                disabled={historyLoading}
               >
                 Close
               </button>

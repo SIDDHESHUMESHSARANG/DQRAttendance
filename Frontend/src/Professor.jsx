@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { API_BASE_URL } from "./services/apiConfig";
 
-const API_URL = "http://localhost:3000/api";
+const API_URL = API_BASE_URL;
 
 async function apiRequest(path, options = {}) {
   const token = localStorage.getItem("professorToken");
@@ -126,7 +127,6 @@ function Professor({ onLogout }) {
 
   useEffect(() => {
     if (!qrData?.expiresAt) {
-      setRemainingSeconds(0);
       return;
     }
 
@@ -149,7 +149,6 @@ function Professor({ onLogout }) {
 
   useEffect(() => {
     if (!activeLectureId || activeLecture?.status !== "ongoing") {
-      setQrData(null);
       return;
     }
 
@@ -703,7 +702,7 @@ function Professor({ onLogout }) {
             <div className="prof-logo">A</div>
             <div>
               <h1>Professor Dashboard</h1>
-              <p className="prof-subtitle">QR-Based Attendance System</p>
+              <p className="prof-subtitle">DQRAttendance · Attendance workspace</p>
             </div>
           </div>
 
@@ -942,7 +941,7 @@ function Professor({ onLogout }) {
         )}
 
         <footer className="prof-footer">
-          QR-Based Attendance System · Professor Portal
+          DQRAttendance · Professor Portal
         </footer>
       </div>
     </main>
