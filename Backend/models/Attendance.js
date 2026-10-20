@@ -17,7 +17,7 @@ const attendanceSchema = new mongoose.Schema(
     classroom: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Classroom",
-      required: true,
+      default: null,
     },
 
     attendanceDate: {

@@ -101,13 +101,15 @@ function Professor({ onLogout }) {
         setError("");
 
         if (!localStorage.getItem("professorToken")) {
-          throw new Error("Professor login token nahi mila. Dobara login karein.");
+          throw new Error(
+            "Professor login token not found. Please log in again."
+          );
         }
 
         await loadLectures();
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || "Lectures load nahi hui.");
+          setError(err.message || "Failed to load lectures.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -178,7 +180,7 @@ function Professor({ onLogout }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || "QR generate nahi ho paya.");
+          setError(err.message || "Failed to generate the QR code.");
         }
       } finally {
         qrRequestInProgress.current = false;
@@ -201,17 +203,17 @@ function Professor({ onLogout }) {
     const id = getLectureId(lecture);
 
     if (!id) {
-      setError("Lecture ID nahi mila.");
+      setError("Lecture ID not found.");
       return;
     }
 
     if (activeLectureId) {
-      setError("Pehle current attendance session stop karein.");
+      setError("Please stop the current attendance session first.");
       return;
     }
 
     if (!navigator.geolocation) {
-      setError("Is browser mein GPS location supported nahi hai.");
+      setError("GPS location is not supported in this browser.");
       return;
     }
 
@@ -230,24 +232,24 @@ function Professor({ onLogout }) {
           });
 
           setQrData(null);
-          setNotice("Attendance session start ho gaya hai.");
+          setNotice("Attendance session started successfully.");
 
           await loadLectures();
         } catch (err) {
-          setError(err.message || "Lecture start nahi ho paya.");
+          setError(err.message || "Failed to start the lecture.");
         } finally {
           setBusyLectureId(null);
         }
       },
       (geoError) => {
         const messages = {
-          1: "Location permission allow karein.",
-          2: "Aapki location nahi mil rahi.",
-          3: "Location request timeout ho gayi.",
+          1: "Please allow location access.",
+          2: "Unable to determine your location.",
+          3: "Location request timed out.",
         };
 
         setError(
-          messages[geoError.code] || "GPS location capture nahi ho payi."
+          messages[geoError.code] || "Failed to capture GPS location."
         );
 
         setBusyLectureId(null);
@@ -266,7 +268,7 @@ function Professor({ onLogout }) {
     if (!id) return;
 
     const confirmed = window.confirm(
-      "Attendance band karne par session close ho jayega. Kya aap continue karna chahte hain?"
+      "Stopping attendance will close the session. Do you want to continue?"
     );
 
     if (!confirmed) return;
@@ -287,13 +289,13 @@ function Professor({ onLogout }) {
       // Permanent report saving must be implemented by the backend.
       setNotice(
         result?.message ||
-          "Attendance session stop ho gaya. Report status verify karein."
+          "Attendance session stopped. Please verify the report status."
       );
 
       await loadLectures();
     } catch (err) {
       setError(
-        `${err.message || "Attendance stop nahi ho payi."} Session close hone ki confirmation nahi mili.`
+        `${err.message || "Failed to stop attendance."} Session closure could not be confirmed.`
       );
     } finally {
       setBusyLectureId(null);
@@ -702,7 +704,9 @@ function Professor({ onLogout }) {
             <div className="prof-logo">A</div>
             <div>
               <h1>Professor Dashboard</h1>
-              <p className="prof-subtitle">DQRAttendance · Attendance workspace</p>
+              <p className="prof-subtitle">
+                DQRAttendance · Attendance workspace
+              </p>
             </div>
           </div>
 
@@ -825,18 +829,18 @@ function Professor({ onLogout }) {
           </div>
 
           {loading ? (
-            <div className="prof-empty">Lectures load ho rahi hain...</div>
+            <div className="prof-empty">Loading lectures...</div>
           ) : lectures.length === 0 ? (
             <div className="prof-empty">
               <div className="prof-empty-icon">▤</div>
               <strong>No lectures assigned yet</strong>
-              <p>Admin ke lecture assign karne par yahan dikhai denge.</p>
+              <p>Lectures assigned by the Admin will appear here.</p>
             </div>
           ) : filteredLectures.length === 0 ? (
             <div className="prof-empty">
               <div className="prof-empty-icon">⌕</div>
               <strong>No matching lectures</strong>
-              <p>Search ya status filter change karke dekhein.</p>
+              <p>Try changing your search or status filter.</p>
             </div>
           ) : (
             <div className="prof-grid">
@@ -930,12 +934,12 @@ function Professor({ onLogout }) {
                 </p>
               </>
             ) : (
-              <p className="prof-qr-meta">QR generate ho raha hai...</p>
+              <p className="prof-qr-meta">Generating QR code...</p>
             )}
 
             <div className="prof-qr-note">
-              Students ko apne authenticated account se QR scan karna hoga.
-              Attendance verification backend par honi chahiye.
+              Students must scan the QR code using their authenticated
+              accounts. Attendance verification is performed by the backend.
             </div>
           </section>
         )}

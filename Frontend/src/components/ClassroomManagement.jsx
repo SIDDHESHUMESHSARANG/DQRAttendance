@@ -1,11 +1,5 @@
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./ClassroomManagement.css";
-import {
-    createClassroom,
-    getClassrooms,
-    updateClassroom,
-} from "../services/classroomService";
 import { API_BASE_URL } from "../services/apiConfig";
 
 const API = API_BASE_URL;
@@ -18,14 +12,6 @@ const initialForm = {
     date: "",
     startTime: "",
     endTime: "",
-};
-
-const initialClassroomForm = {
-    classroomName: "",
-    building: "",
-    latitude: "",
-    longitude: "",
-    radiusMeters: "30",
 };
 
 const getId = (item) => item?._id || item?.id || "";
@@ -117,15 +103,10 @@ const formatDate = (value) => {
 };
 
 function ClassroomManagement({ onBack }) {
-    const [classrooms, setClassrooms] = useState([]);
     const [professors, setProfessors] = useState([]);
     const [lectures, setLectures] = useState([]);
 
     const [form, setForm] = useState(initialForm);
-    const [classroomForm, setClassroomForm] = useState(initialClassroomForm);
-
-    const [editingClassroom, setEditingClassroom] = useState(null);
-    const [showClassroomForm, setShowClassroomForm] = useState(false);
 
     const [dateFilter, setDateFilter] = useState("today");
     const [searchDate, setSearchDate] = useState(
@@ -161,7 +142,6 @@ function ClassroomManagement({ onBack }) {
         return data;
     }, []);
 
-    // Show a success/error notification and automatically dismiss it.
     const showToast = useCallback((message, type = "success") => {
         if (toastTimerRef.current) {
             clearTimeout(toastTimerRef.current);
@@ -182,17 +162,14 @@ function ClassroomManagement({ onBack }) {
         }, 3500);
     }, []);
 
-    // Load classroom locations, professors, and lectures.
     const loadData = useCallback(async ({ showLoading = true } = {}) => {
         if (showLoading) {
             setLoading(true);
         }
 
         try {
-            const [roomResponse, professorResponse, lectureResponse] =
+            const [professorResponse, lectureResponse] =
                 await Promise.all([
-                    getClassrooms(),
-
                     fetch(`${API}/professors`, {
                         headers: headers(),
                     }).then((response) =>
@@ -212,7 +189,6 @@ function ClassroomManagement({ onBack }) {
                     ),
                 ]);
 
-            setClassrooms(getList(roomResponse, "classrooms"));
             setProfessors(getList(professorResponse, "professors"));
             setLectures(getList(lectureResponse, "lectures"));
 
@@ -250,11 +226,6 @@ function ClassroomManagement({ onBack }) {
             setSearchDate(getRelativeDate(-1));
         }
     }, [dateFilter]);
-
-    const activeClassrooms = useMemo(
-        () => classrooms.filter((room) => room.isActive !== false),
-        [classrooms]
-    );
 
     const availableClasses = useMemo(() => {
         const values = professors
@@ -330,100 +301,6 @@ function ClassroomManagement({ onBack }) {
         }));
     };
 
-    const changeClassroomField = (event) => {
-        const { name, value } = event.target;
-
-        setClassroomForm((previous) => ({
-            ...previous,
-            [name]: value,
-        }));
-    };
-
-    const openClassroomForm = (classroom = null) => {
-        setEditingClassroom(classroom);
-
-        setClassroomForm(
-            classroom
-                ? {
-                    classroomName: classroom.classroomName || "",
-                    building: classroom.building || "",
-                    latitude: String(classroom.latitude ?? ""),
-                    longitude: String(classroom.longitude ?? ""),
-                    radiusMeters: String(classroom.radiusMeters ?? 30),
-                }
-                : { ...initialClassroomForm }
-        );
-
-        setShowClassroomForm(true);
-        setError("");
-        setNotice("");
-    };
-
-    const saveClassroom = async (event) => {
-        event.preventDefault();
-
-        setSaving(true);
-        setError("");
-        setNotice("");
-
-        const payload = {
-            classroomName: classroomForm.classroomName.trim(),
-            building: classroomForm.building.trim(),
-            latitude: Number(classroomForm.latitude),
-            longitude: Number(classroomForm.longitude),
-            radiusMeters: Number(classroomForm.radiusMeters),
-        };
-
-        if (
-            !payload.classroomName ||
-            classroomForm.latitude.trim() === "" ||
-            classroomForm.longitude.trim() === "" ||
-            classroomForm.radiusMeters.trim() === "" ||
-            !Number.isFinite(payload.latitude) ||
-            payload.latitude < -90 ||
-            payload.latitude > 90 ||
-            !Number.isFinite(payload.longitude) ||
-            payload.longitude < -180 ||
-            payload.longitude > 180 ||
-            !Number.isFinite(payload.radiusMeters) ||
-            payload.radiusMeters < 1 ||
-            payload.radiusMeters > 500
-        ) {
-            showToast(
-                "Enter a classroom name and valid coordinates and radius.",
-                "error"
-            );
-            setSaving(false);
-            return;
-        }
-
-        try {
-            const result = editingClassroom
-                ? await updateClassroom(getId(editingClassroom), payload)
-                : await createClassroom(payload);
-
-            setShowClassroomForm(false);
-            setEditingClassroom(null);
-            setClassroomForm({ ...initialClassroomForm });
-
-            await loadData({ showLoading: false });
-
-            showToast(
-                result.message ||
-                    (editingClassroom
-                        ? "Classroom updated successfully."
-                        : "Classroom created successfully.")
-            );
-        } catch (requestError) {
-            showToast(
-                requestError.message || "Unable to save classroom.",
-                "error"
-            );
-        } finally {
-            setSaving(false);
-        }
-    };
-
     const changeClass = (event) => {
         setForm((previous) => ({
             ...previous,
@@ -438,6 +315,26 @@ function ClassroomManagement({ onBack }) {
         setEditingLecture(null);
         setForm({ ...initialForm });
         setShowForm(true);
+    };
+
+    const classroomNameFor = (lecture) => {
+        if (lecture.classroomName) {
+            return lecture.classroomName;
+        }
+
+        if (
+            lecture.classroom &&
+            typeof lecture.classroom === "object"
+        ) {
+            return [
+                lecture.classroom.classroomName,
+                lecture.classroom.building,
+            ]
+                .filter(Boolean)
+                .join(" — ");
+        }
+
+        return "Classroom";
     };
 
     const openEditForm = (lecture) => {
@@ -506,19 +403,6 @@ function ClassroomManagement({ onBack }) {
             return;
         }
 
-        const selectedClassroom = activeClassrooms.find(
-            (room) =>
-                normalise(room.classroomName) === normalise(classroomName)
-        );
-
-        if (!selectedClassroom) {
-            showToast(
-                "Select a saved, active classroom location. Add it under Classroom locations first.",
-                "error"
-            );
-            return;
-        }
-
         const startTime = timeTo24(form.startTime);
         const endTime = timeTo24(form.endTime);
         const startMinutes = timeToMinutes(form.startTime);
@@ -558,7 +442,6 @@ function ClassroomManagement({ onBack }) {
                         subject: form.subject,
                         assignedClass: form.assignedClass,
                         classroomName,
-                        classroomId: getId(selectedClassroom),
                         date: form.date,
                         startTime,
                         endTime,
@@ -592,16 +475,15 @@ function ClassroomManagement({ onBack }) {
             setEditingLecture(null);
             setForm({ ...initialForm });
 
-            // Refresh data without switching to the loading screen.
             await loadData({ showLoading: false });
 
             showToast(successMessage, "success");
         } catch (err) {
             showToast(
                 err.message ||
-                    (isEditing
-                        ? "Unable to update lecture."
-                        : "Unable to create lecture."),
+                (isEditing
+                    ? "Unable to update lecture."
+                    : "Unable to create lecture."),
                 "error"
             );
         } finally {
@@ -675,34 +557,6 @@ function ClassroomManagement({ onBack }) {
         }
     };
 
-    const classroomNameFor = (lecture) => {
-        if (lecture.classroomName) {
-            return lecture.classroomName;
-        }
-
-        if (
-            lecture.classroom &&
-            typeof lecture.classroom === "object"
-        ) {
-            return [
-                lecture.classroom.classroomName,
-                lecture.classroom.building,
-            ]
-                .filter(Boolean)
-                .join(" — ");
-        }
-
-        const room = classrooms.find(
-            (item) => getId(item) === lecture.classroom
-        );
-
-        return room
-            ? [room.classroomName, room.building]
-                .filter(Boolean)
-                .join(" — ")
-            : "Classroom";
-    };
-
     const handleSpecificDateChange = (event) => {
         setSearchDate(event.target.value);
         setDateFilter("specific");
@@ -725,12 +579,10 @@ function ClassroomManagement({ onBack }) {
 
     return (
         <section className="cm-page">
-            {/* Floating success/error toast */}
             {(notice || error) && (
                 <div
-                    className={`cm-toast ${
-                        error ? "cm-toast-error" : "cm-toast-success"
-                    }`}
+                    className={`cm-toast ${error ? "cm-toast-error" : "cm-toast-success"
+                        }`}
                     role={error ? "alert" : "status"}
                     key={error || notice}
                 >
@@ -767,10 +619,10 @@ function ClassroomManagement({ onBack }) {
             <header className="cm-page-header">
                 <div className="cm-header-title">
                     <p className="cm-eyebrow">ADMINISTRATION / ACADEMICS</p>
-                    <h2>Classroom Management</h2>
+                    <h2>Lecture Management</h2>
                     <p className="cm-subtitle">
                         Plan lectures, assign professors, and manage your
-                        classroom schedule.
+                        lecture schedule.
                     </p>
                 </div>
 
@@ -805,7 +657,6 @@ function ClassroomManagement({ onBack }) {
                 </div>
             </header>
 
-            {/* Inline messages from the second branch are preserved */}
             {error && (
                 <div className="cm-message cm-error" role="alert">
                     {error}
@@ -818,182 +669,6 @@ function ClassroomManagement({ onBack }) {
                 </div>
             )}
 
-            {/* Classroom location management */}
-            <div className="cm-panel">
-                <div className="cm-panel-heading">
-                    <div>
-                        <h3>Classroom locations</h3>
-                        <p>
-                            Set the GPS point and permitted attendance radius
-                            for each room.
-                        </p>
-                    </div>
-
-                    <button
-                        type="button"
-                        className="cm-button cm-button-primary"
-                        onClick={() => openClassroomForm()}
-                        disabled={saving}
-                    >
-                        + Add Classroom
-                    </button>
-                </div>
-
-                {showClassroomForm && (
-                    <form
-                        className="cm-classroom-form"
-                        onSubmit={saveClassroom}
-                    >
-                        <div className="cm-form-grid">
-                            <div className="cm-field">
-                                <label htmlFor="cm-room-name">
-                                    Classroom name *
-                                </label>
-                                <input
-                                    id="cm-room-name"
-                                    name="classroomName"
-                                    value={classroomForm.classroomName}
-                                    onChange={changeClassroomField}
-                                    required
-                                />
-                            </div>
-
-                            <div className="cm-field">
-                                <label htmlFor="cm-room-building">
-                                    Building
-                                </label>
-                                <input
-                                    id="cm-room-building"
-                                    name="building"
-                                    value={classroomForm.building}
-                                    onChange={changeClassroomField}
-                                />
-                            </div>
-
-                            <div className="cm-field">
-                                <label htmlFor="cm-room-lat">
-                                    Latitude *
-                                </label>
-                                <input
-                                    id="cm-room-lat"
-                                    name="latitude"
-                                    type="number"
-                                    min="-90"
-                                    max="90"
-                                    step="any"
-                                    value={classroomForm.latitude}
-                                    onChange={changeClassroomField}
-                                    required
-                                />
-                            </div>
-
-                            <div className="cm-field">
-                                <label htmlFor="cm-room-long">
-                                    Longitude *
-                                </label>
-                                <input
-                                    id="cm-room-long"
-                                    name="longitude"
-                                    type="number"
-                                    min="-180"
-                                    max="180"
-                                    step="any"
-                                    value={classroomForm.longitude}
-                                    onChange={changeClassroomField}
-                                    required
-                                />
-                            </div>
-
-                            <div className="cm-field">
-                                <label htmlFor="cm-room-radius">
-                                    Attendance radius (metres) *
-                                </label>
-                                <input
-                                    id="cm-room-radius"
-                                    name="radiusMeters"
-                                    type="number"
-                                    min="1"
-                                    max="500"
-                                    value={classroomForm.radiusMeters}
-                                    onChange={changeClassroomField}
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        <div className="cm-form-actions">
-                            <button
-                                type="button"
-                                className="cm-button cm-button-secondary"
-                                onClick={() => {
-                                    if (saving) return;
-                                    setShowClassroomForm(false);
-                                    setEditingClassroom(null);
-                                    setClassroomForm({
-                                        ...initialClassroomForm,
-                                    });
-                                }}
-                                disabled={saving}
-                            >
-                                Cancel
-                            </button>
-
-                            <button
-                                type="submit"
-                                className="cm-button cm-button-primary"
-                                disabled={saving}
-                            >
-                                {saving
-                                    ? "Saving…"
-                                    : editingClassroom
-                                        ? "Save classroom"
-                                        : "Create classroom"}
-                            </button>
-                        </div>
-                    </form>
-                )}
-
-                <div className="cm-classroom-list">
-                    {!loading && classrooms.length === 0 && (
-                        <div className="cm-empty">
-                            No classroom locations yet. Add one to enable
-                            location-verified attendance.
-                        </div>
-                    )}
-
-                    {classrooms.map((classroom) => (
-                        <article
-                            className="cm-classroom-item"
-                            key={getId(classroom)}
-                        >
-                            <span className="cm-classroom-icon">⌖</span>
-
-                            <div>
-                                <strong>{classroom.classroomName}</strong>
-                                <small>
-                                    {classroom.building || "Campus"} ·{" "}
-                                    {classroom.radiusMeters || 30}m radius
-                                </small>
-                                <small>
-                                    {classroom.latitude},{" "}
-                                    {classroom.longitude}
-                                </small>
-                            </div>
-
-                            <button
-                                type="button"
-                                className="cm-button cm-button-edit"
-                                onClick={() => openClassroomForm(classroom)}
-                                disabled={saving}
-                            >
-                                Edit
-                            </button>
-                        </article>
-                    ))}
-                </div>
-            </div>
-
-            {/* Create or edit a lecture */}
             {showForm && (
                 <div className="cm-panel cm-create-panel">
                     <div className="cm-panel-heading">
@@ -1092,7 +767,6 @@ function ClassroomManagement({ onBack }) {
                             <input
                                 id="cm-classroom"
                                 name="classroomName"
-                                list="cm-classroom-options"
                                 value={form.classroomName}
                                 onChange={changeField}
                                 placeholder="e.g. Lab 02 or Room 105"
@@ -1100,25 +774,6 @@ function ClassroomManagement({ onBack }) {
                                 maxLength={150}
                                 required
                             />
-
-                            <datalist id="cm-classroom-options">
-                                {activeClassrooms.map((room) => (
-                                    <option
-                                        key={getId(room)}
-                                        value={room.classroomName}
-                                        label={
-                                            room.building
-                                                ? `${room.classroomName} — ${room.building}`
-                                                : room.classroomName
-                                        }
-                                    />
-                                ))}
-                            </datalist>
-
-                            <small>
-                                Select a saved classroom location so
-                                attendance scans can verify the room.
-                            </small>
                         </div>
 
                         <div className="cm-form-grid cm-time-grid">
@@ -1136,36 +791,36 @@ function ClassroomManagement({ onBack }) {
                                 />
                             </div>
 
-                            <div className="cm-field">
-                                <label htmlFor="cm-start">
-                                    Start Time *
-                                </label>
-                                <input
-                                    id="cm-start"
-                                    name="startTime"
-                                    value={form.startTime}
-                                    onChange={changeField}
-                                    placeholder="09:00 AM"
-                                    pattern="(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM|am|pm)"
-                                    title="Example: 09:00 AM"
-                                    required
-                                />
-                            </div>
+                            <div className="cm-form-grid cm-time-grid">
+                                <div className="cm-field">
+                                    <label htmlFor="cm-start">Start Time *</label>
+                                    <input
+                                        id="cm-start"
+                                        name="startTime"
+                                        type="text"
+                                        value={form.startTime}
+                                        onChange={changeField}
+                                        placeholder="02:00 PM"
+                                        pattern="(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM|am|pm)"
+                                        title="Enter time like 02:00 PM"
+                                        required
+                                    />
+                                </div>
 
-                            <div className="cm-field">
-                                <label htmlFor="cm-end">
-                                    End Time *
-                                </label>
-                                <input
-                                    id="cm-end"
-                                    name="endTime"
-                                    value={form.endTime}
-                                    onChange={changeField}
-                                    placeholder="10:00 AM"
-                                    pattern="(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM|am|pm)"
-                                    title="Example: 10:00 AM"
-                                    required
-                                />
+                                <div className="cm-field">
+                                    <label htmlFor="cm-end">End Time *</label>
+                                    <input
+                                        id="cm-end"
+                                        name="endTime"
+                                        type="text"
+                                        value={form.endTime}
+                                        onChange={changeField}
+                                        placeholder="03:00 PM"
+                                        pattern="(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM|am|pm)"
+                                        title="Enter time like 03:00 PM"
+                                        required
+                                    />
+                                </div>
                             </div>
                         </div>
 
@@ -1197,7 +852,6 @@ function ClassroomManagement({ onBack }) {
                 </div>
             )}
 
-            {/* Lecture schedule and date filters */}
             <div className="cm-panel cm-schedule-panel">
                 <div className="cm-panel-heading">
                     <div>
@@ -1213,9 +867,8 @@ function ClassroomManagement({ onBack }) {
                 <div className="cm-date-filter">
                     <button
                         type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "today" ? "active" : ""
-                        }`}
+                        className={`cm-date-filter-button ${dateFilter === "today" ? "active" : ""
+                            }`}
                         onClick={() => chooseDateFilter("today")}
                     >
                         Today
@@ -1223,9 +876,8 @@ function ClassroomManagement({ onBack }) {
 
                     <button
                         type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "tomorrow" ? "active" : ""
-                        }`}
+                        className={`cm-date-filter-button ${dateFilter === "tomorrow" ? "active" : ""
+                            }`}
                         onClick={() => chooseDateFilter("tomorrow")}
                     >
                         Tomorrow
@@ -1233,9 +885,8 @@ function ClassroomManagement({ onBack }) {
 
                     <button
                         type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "yesterday" ? "active" : ""
-                        }`}
+                        className={`cm-date-filter-button ${dateFilter === "yesterday" ? "active" : ""
+                            }`}
                         onClick={() => chooseDateFilter("yesterday")}
                     >
                         Yesterday
@@ -1243,9 +894,8 @@ function ClassroomManagement({ onBack }) {
 
                     <button
                         type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "specific" ? "active" : ""
-                        }`}
+                        className={`cm-date-filter-button ${dateFilter === "specific" ? "active" : ""
+                            }`}
                         onClick={() => chooseDateFilter("specific")}
                     >
                         Specific Date
@@ -1343,9 +993,8 @@ function ClassroomManagement({ onBack }) {
                                     </div>
 
                                     <span
-                                        className={`cm-status cm-status-${
-                                            lecture.status || "scheduled"
-                                        }`}
+                                        className={`cm-status cm-status-${lecture.status || "scheduled"
+                                            }`}
                                     >
                                         <span className="cm-status-dot" />
                                         {lecture.status || "scheduled"}
