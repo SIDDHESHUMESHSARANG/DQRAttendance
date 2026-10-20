@@ -12,6 +12,11 @@ The build command checks the server entry point for syntax errors; the API is
 run by the start command. Set required backend configuration, including
 `MONGO_URI`, `JWT_SECRET`, and `OTP_SECRET`, in Render's Environment settings.
 Do not commit or upload `Backend/.env`; local `.env` files are for development.
+The deployed frontend origin `https://dqr-attendance.vercel.app` is allowed by
+default. For other frontend domains, set `FRONTEND_URL` in Render's Environment
+settings to the exact origin (scheme and hostname, with no path). Multiple
+origins can be comma-separated. Redeploy or restart the service after changing
+the setting.
 
 ## Twilio WhatsApp low-attendance alerts
 

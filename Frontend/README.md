@@ -12,6 +12,12 @@ The client uses `http://localhost:3000/api` by default. To use another API
 origin, set `VITE_API_URL` to the API base path, including `/api`, before
 starting or building the frontend.
 
+For the deployed API, configure the Vercel project environment variable
+`VITE_API_URL` as `https://dqrattendance.onrender.com/api`, then redeploy the
+frontend. The Render backend must allow the Vercel site's exact origin through
+its `FRONTEND_URL` environment setting; the main
+`https://dqr-attendance.vercel.app` origin is allowed by default.
+
 ## Portals
 
 - **Admin:** Manage students and professors, create classrooms and schedule

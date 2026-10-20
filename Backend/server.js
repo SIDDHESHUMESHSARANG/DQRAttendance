@@ -27,8 +27,9 @@ const allowedOrigins = [
   "https://localhost:5173",
   "https://127.0.0.1:5173",
   "https://10.132.240.22:5173",
+  "https://dqr-attendance.vercel.app",
 
-  // Add deployed frontend URL in .env:
+  // Add additional deployed frontend URLs in .env:
   // FRONTEND_URL=https://your-frontend-domain.com
 ];
 
