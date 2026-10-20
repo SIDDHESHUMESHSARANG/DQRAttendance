@@ -109,7 +109,7 @@ textarea:focus-visible {
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 20px;
-  color: #ffffff;
+  color: #fff;
   text-align: left;
   box-shadow: 0 12px 30px rgba(20, 43, 73, 0.12);
   cursor: pointer;
@@ -170,7 +170,7 @@ textarea:focus-visible {
 
 .role-card-title {
   margin-bottom: 10px;
-  color: #ffffff;
+  color: #fff;
   font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.5px;
@@ -190,7 +190,7 @@ textarea:focus-visible {
   width: 100%;
   margin-top: auto;
   padding-top: 24px;
-  color: #ffffff;
+  color: #fff;
   font-size: 13px;
   font-weight: 800;
 }
@@ -383,7 +383,7 @@ textarea:focus-visible {
 .form-group input:focus,
 .form-group select:focus {
   border-color: #456b9a;
-  background: #ffffff;
+  background: #fff;
   box-shadow: 0 0 0 3px rgba(69, 107, 154, 0.11);
 }
 
@@ -395,7 +395,7 @@ textarea:focus-visible {
   border: 0;
   border-radius: 11px;
   background: #244d7b;
-  color: #ffffff;
+  color: #fff;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -443,6 +443,110 @@ textarea:focus-visible {
   border-radius: 10px;
 }
 
+/* Additional authentication controls */
+
+.password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 48px;
+}
+
+.password-field button {
+  position: absolute;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #526176;
+  cursor: pointer;
+}
+
+.password-field button:hover {
+  background: #e9edf2;
+  color: #244d7b;
+}
+
+.text-button,
+.back-button {
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #244d7b;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.text-button:hover,
+.back-button:hover {
+  color: #163759;
+  text-decoration: underline;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 20px;
+}
+
+.otp-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: #e5ecf4;
+  color: #244d7b;
+  font-size: 26px;
+}
+
+.otp-help {
+  margin: 12px 0 20px;
+  color: #687384;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.otp-input {
+  letter-spacing: 8px;
+  text-align: center;
+  font-size: 21px !important;
+  font-weight: 750;
+}
+
+.mobile-brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  margin-right: 10px;
+  border-radius: 12px;
+  background: #e2e9f2;
+  color: #244d7b;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.header-caption {
+  margin-top: 6px;
+  color: #687384;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .security-note,
 .page-footer {
   display: none;
@@ -470,7 +574,6 @@ textarea:focus-visible {
 
 /* =========================================
    SIDEBAR
-   Improved spacing, readable text and hover
    ========================================= */
 
 .dashboard-sidebar {
@@ -534,8 +637,13 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 5px;
   min-width: 0;
+<<<<<<< HEAD
   color: #ffffff;
   font-size: 13px;
+=======
+  color: #fff;
+  font-size: 15px;
+>>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e
   font-weight: 750;
   letter-spacing: -0.3px;
   overflow-wrap: anywhere;
@@ -557,8 +665,6 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
-/* Navigation list */
-
 .dashboard-nav {
   display: flex;
   flex-direction: column;
@@ -566,24 +672,27 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-/* Main sidebar buttons */
+/* Text-only navigation */
 
 .dashboard-nav-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 0;
   width: 100%;
   min-width: 0;
   min-height: 46px;
-  padding: 11px 12px;
+  margin: 5px 0;
+  padding: 0 18px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 9px;
   background: transparent;
-  color: #d5dfec;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  color: #cbd5e1;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
   line-height: 1.5;
   text-align: left;
   text-decoration: none;
@@ -592,86 +701,51 @@ textarea:focus-visible {
   transition:
     background-color 0.2s ease,
     color 0.2s ease,
-    border-color 0.2s ease,
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    border-color 0.2s ease;
 }
 
-/* Keep nested text readable */
+.dashboard-nav-item .nav-symbol {
+  display: none !important;
+}
 
 .dashboard-nav-item > span:not(.nav-symbol) {
   min-width: 0;
   overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
 }
-
-/* Hover effect */
 
 .dashboard-nav-item:hover {
-  transform: translateX(3px);
-  border-color: rgba(255, 255, 255, 0.13);
-  background: #2a4262;
-  color: #ffffff;
+  background-color: #263449;
+  color: #fff;
 }
-
-/* Keyboard focus */
 
 .dashboard-nav-item:focus-visible {
   outline: 2px solid #b9d3f1;
   outline-offset: 2px;
-  color: #ffffff;
+  color: #fff;
 }
-
-/* Active / selected page */
 
 .dashboard-nav-item.active,
 .dashboard-nav-item[aria-current="page"] {
-  border-color: rgba(185, 211, 241, 0.22);
-  background: #365579;
-  color: #ffffff;
-  font-weight: 750;
+  border-color: rgba(185, 211, 241, 0.15);
+  background-color: #0f3b66;
+  color: #fff;
+  font-weight: 600;
   box-shadow: inset 3px 0 #b9d3f1;
 }
 
 .dashboard-nav-item.active:hover,
 .dashboard-nav-item[aria-current="page"]:hover {
-  transform: translateX(3px);
-  background: #42658d;
-  color: #ffffff;
+  background-color: #164b7b;
+  color: #fff;
 }
-
-/* Sidebar icons */
-
-.nav-symbol {
-  display: grid;
-  place-items: center;
-  flex: 0 0 24px;
-  width: 24px;
-  min-width: 24px;
-  color: #cbd9eb;
-  font-size: 19px;
-  line-height: 1;
-  transition:
-    color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.dashboard-nav-item:hover .nav-symbol,
-.dashboard-nav-item.active .nav-symbol,
-.dashboard-nav-item[aria-current="page"] .nav-symbol {
-  color: #ffffff;
-}
-
-.dashboard-nav-item:hover .nav-symbol {
-  transform: scale(1.08);
-}
-
-/* Upcoming / disabled-looking items */
 
 .nav-coming-soon {
   opacity: 0.85;
 }
 
-/* Sidebar bottom profile area */
+/* Sidebar bottom profile */
 
 .sidebar-bottom {
   margin-top: auto;
@@ -715,7 +789,7 @@ textarea:focus-visible {
 
 .sidebar-admin-info strong {
   overflow: hidden;
-  color: #ffffff;
+  color: #fff;
   font-size: 12px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -726,8 +800,6 @@ textarea:focus-visible {
   color: #c0cde0;
   font-size: 11px;
 }
-
-/* Logout button */
 
 .dashboard-logout {
   display: flex;
@@ -755,7 +827,7 @@ textarea:focus-visible {
 .dashboard-logout:hover {
   border-color: rgba(255, 255, 255, 0.14);
   background: #2a4262;
-  color: #ffffff;
+  color: #fff;
 }
 
 .dashboard-logout:focus-visible {
@@ -1153,7 +1225,6 @@ textarea:focus-visible {
 
 /* =========================================
    TOAST NOTIFICATIONS
-   Works with .app-toast-* in App.jsx
    ========================================= */
 
 .app-toast-container {
@@ -1183,7 +1254,7 @@ textarea:focus-visible {
   border: 1px solid #e2e7ed;
   border-left: 4px solid #426b9b;
   border-radius: 13px;
-  background: #ffffff;
+  background: #fff;
   color: #25364c;
   box-shadow: 0 12px 35px rgba(20, 43, 73, 0.17);
   animation: app-toast-enter 0.25s ease-out;
@@ -1634,9 +1705,12 @@ textarea:focus-visible {
   }
 
   .dashboard-nav-item {
-    gap: 10px;
     padding-right: 9px;
     padding-left: 9px;
+    font-size: 12px;
+  }
+
+  .dashboard-nav-item > span:not(.nav-symbol) {
     font-size: 12px;
   }
 }
@@ -1661,6 +1735,7 @@ textarea:focus-visible {
     transform: none;
   }
 }
+<<<<<<< HEAD
 /* Clean and professional sidebar text */
 .dashboard-nav-item {
   display: flex;
@@ -2744,3 +2819,5 @@ textarea:focus-visible {
     transition: none;
   }
 }
+=======
+>>>>>>> a3e500d64674ed8c8e6e248a4790f0f21d6f810e

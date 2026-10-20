@@ -732,14 +732,6 @@ export const processQrAttendance = async (req, res) => {
     // Always use the classroom coordinates saved in the database.
     // Keep the classroom association, but verify location against
     // the Professor's location captured when the lecture started.
-    const classroom = await Classroom.findById(lecture.classroom);
-
-    if (!classroom || !classroom.isActive) {
-      return res.status(400).json({
-        success: false,
-        message: "Classroom is missing or inactive.",
-      });
-    }
 
     const professorLatitude = lecture.professorLocation?.latitude;
     const professorLongitude = lecture.professorLocation?.longitude;
@@ -795,7 +787,7 @@ export const processQrAttendance = async (req, res) => {
     const attendance = await Attendance.create({
       student: student._id,
       lecture: lecture._id,
-      classroom: classroom._id,
+      classroom: lecture.classroom ?? null,
       attendanceDate,
       markedAt: new Date(),
       location: {

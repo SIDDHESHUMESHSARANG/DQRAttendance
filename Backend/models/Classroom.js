@@ -15,16 +15,18 @@ const classroomSchema = new mongoose.Schema(
             default: "",
         },
 
+        // Optional legacy fields.
+        // Classroom creation no longer requires GPS coordinates.
         latitude: {
             type: Number,
-            required: true,
+            required: false,
             min: -90,
             max: 90,
         },
 
         longitude: {
             type: Number,
-            required: true,
+            required: false,
             min: -180,
             max: 180,
         },

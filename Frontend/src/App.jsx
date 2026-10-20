@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import "./App.css";
 
@@ -90,10 +89,10 @@ function ToastContainer({ toasts, onDismiss }) {
             {toast.type === "success"
               ? "✓"
               : toast.type === "error"
-              ? "!"
-              : toast.type === "warning"
-              ? "⚠"
-              : "i"}
+                ? "!"
+                : toast.type === "warning"
+                  ? "⚠"
+                  : "i"}
           </span>
 
           <div className="app-toast-content">
@@ -152,15 +151,32 @@ function App() {
       info: "Information",
     };
 
+    const toastTitle = title || titles[type] || "Notification";
+
     setToasts((current) => [
       ...current.slice(-2),
       {
         id,
         type,
-        title: title || titles[type] || "Notification",
+        title: toastTitle,
         message,
       },
     ]);
+
+    // Login and logout notifications disappear after 2 seconds.
+    const isLoginOrLogoutToast = [
+      "Login successful",
+      "Login failed",
+      "Logged out",
+    ].includes(toastTitle);
+
+    if (isLoginOrLogoutToast) {
+      setTimeout(() => {
+        setToasts((current) =>
+          current.filter((toast) => toast.id !== id)
+        );
+      }, 2000);
+    }
   };
 
   const dismissToast = (id) => {
@@ -1466,8 +1482,8 @@ function App() {
                       {role === "admin"
                         ? "Enter your details to create an Admin account."
                         : role === "professor"
-                        ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
-                        : "Activate the student account created for you by your Admin using your registered email."}
+                          ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
+                          : "Activate the student account created for you by your Admin using your registered email."}
                     </p>
 
                     <form onSubmit={handleRegister}>
@@ -1692,8 +1708,8 @@ function App() {
                           ? "Verifying..."
                           : role === "professor" ||
                             role === "student"
-                          ? "Verify OTP and create password"
-                          : "Verify email"}
+                            ? "Verify OTP and create password"
+                            : "Verify email"}
                       </button>
                     </form>
 

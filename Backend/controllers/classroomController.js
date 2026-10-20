@@ -2,6 +2,7 @@
 import Classroom from "../models/Classroom.js";
 
 // API 1: Create Classroom
+// Only classroomName is required. GPS coordinates are not required.
 export const createClassroom = async (req, res) => {
     try {
         const {
@@ -14,52 +15,80 @@ export const createClassroom = async (req, res) => {
 
         if (
             typeof classroomName !== "string" ||
-            !classroomName.trim() ||
-            typeof latitude !== "number" ||
-            typeof longitude !== "number"
+            !classroomName.trim()
         ) {
             return res.status(400).json({
-                message:
-                    "Classroom name, numeric latitude and numeric longitude are required.",
-            });
-        }
-
-        if (
-            !Number.isFinite(latitude) ||
-            latitude < -90 ||
-            latitude > 90 ||
-            !Number.isFinite(longitude) ||
-            longitude < -180 ||
-            longitude > 180
-        ) {
-            return res.status(400).json({
-                message: "Invalid latitude or longitude.",
-            });
-        }
-
-        const radius = radiusMeters === undefined ? 30 : radiusMeters;
-
-        if (
-            typeof radius !== "number" ||
-            !Number.isFinite(radius) ||
-            radius < 1 ||
-            radius > 500
-        ) {
-            return res.status(400).json({
-                message: "Radius must be between 1 and 500 metres.",
+                message: "Classroom name is required.",
             });
         }
 
         const cleanBuilding =
             typeof building === "string" ? building.trim() : "";
 
-        const classroom = await Classroom.create({
+        const classroomData = {
             classroomName: classroomName.trim(),
             building: cleanBuilding,
-            latitude,
-            longitude,
-            radiusMeters: radius,
-        });
+        };
+
+        // Keep compatibility with older requests that still send GPS.
+        // If coordinates are supplied, validate both.
+        const hasLatitude =
+            latitude !== undefined && latitude !== null && latitude !== "";
+
+        const hasLongitude =
+            longitude !== undefined &&
+            longitude !== null &&
+            longitude !== "";
+
+        if (hasLatitude !== hasLongitude) {
+            return res.status(400).json({
+                message:
+                    "If GPS coordinates are supplied, both latitude and longitude are required.",
+            });
+        }
+
+        if (hasLatitude && hasLongitude) {
+            const lat = Number(latitude);
+            const long = Number(longitude);
+
+            if (
+                !Number.isFinite(lat) ||
+                lat < -90 ||
+                lat > 90 ||
+                !Number.isFinite(long) ||
+                long < -180 ||
+                long > 180
+            ) {
+                return res.status(400).json({
+                    message: "Invalid latitude or longitude.",
+                });
+            }
+
+            classroomData.latitude = lat;
+            classroomData.longitude = long;
+        }
+
+        if (
+            radiusMeters !== undefined &&
+            radiusMeters !== null &&
+            radiusMeters !== ""
+        ) {
+            const radius = Number(radiusMeters);
+
+            if (
+                !Number.isFinite(radius) ||
+                radius < 1 ||
+                radius > 500
+            ) {
+                return res.status(400).json({
+                    message: "Radius must be between 1 and 500 metres.",
+                });
+            }
+
+            classroomData.radiusMeters = radius;
+        }
+
+        const classroom = await Classroom.create(classroomData);
 
         return res.status(201).json({
             message: "Classroom created successfully.",
@@ -163,42 +192,47 @@ export const updateClassroom = async (req, res) => {
             classroom.building = building.trim();
         }
 
-        if (latitude !== undefined) {
+        if (latitude !== undefined || longitude !== undefined) {
+            const lat =
+                latitude === undefined || latitude === null || latitude === ""
+                    ? classroom.latitude
+                    : Number(latitude);
+
+            const long =
+                longitude === undefined ||
+                longitude === null ||
+                longitude === ""
+                    ? classroom.longitude
+                    : Number(longitude);
+
+            // Allow legacy classroom records to keep optional coordinates.
             if (
-                typeof latitude !== "number" ||
-                !Number.isFinite(latitude) ||
-                latitude < -90 ||
-                latitude > 90
+                (lat !== undefined && lat !== null &&
+                    (!Number.isFinite(lat) || lat < -90 || lat > 90)) ||
+                (long !== undefined && long !== null &&
+                    (!Number.isFinite(long) || long < -180 || long > 180))
             ) {
                 return res.status(400).json({
-                    message: "Invalid latitude.",
+                    message: "Invalid latitude or longitude.",
                 });
             }
 
-            classroom.latitude = latitude;
-        }
-
-        if (longitude !== undefined) {
-            if (
-                typeof longitude !== "number" ||
-                !Number.isFinite(longitude) ||
-                longitude < -180 ||
-                longitude > 180
-            ) {
-                return res.status(400).json({
-                    message: "Invalid longitude.",
-                });
+            if (lat !== undefined && lat !== null) {
+                classroom.latitude = lat;
             }
 
-            classroom.longitude = longitude;
+            if (long !== undefined && long !== null) {
+                classroom.longitude = long;
+            }
         }
 
         if (radiusMeters !== undefined) {
+            const radius = Number(radiusMeters);
+
             if (
-                typeof radiusMeters !== "number" ||
-                !Number.isFinite(radiusMeters) ||
-                radiusMeters < 1 ||
-                radiusMeters > 500
+                !Number.isFinite(radius) ||
+                radius < 1 ||
+                radius > 500
             ) {
                 return res.status(400).json({
                     message:
@@ -206,7 +240,7 @@ export const updateClassroom = async (req, res) => {
                 });
             }
 
-            classroom.radiusMeters = radiusMeters;
+            classroom.radiusMeters = radius;
         }
 
         await classroom.save();
