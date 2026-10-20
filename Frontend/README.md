@@ -1,16 +1,27 @@
-# React + Vite
+# DQRAttendance
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React and Vite frontend for DQRAttendance, a QR-based attendance system.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Start the backend API on port `3000` (or set its `PORT`).
+2. In this folder, install dependencies with `npm install`.
+3. Start the frontend with `npm run dev`.
 
-## React Compiler
+The client uses `http://localhost:3000/api` by default. To use another API
+origin, set `VITE_API_URL` to the API base path, including `/api`, before
+starting or building the frontend.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Portals
 
-## Expanding the ESLint configuration
+- **Admin:** Manage students and professors, create classrooms and schedule
+  lectures, view attendance reports, review flagged scans, reset trusted
+  student devices, and send low-attendance WhatsApp reminders.
+- **Professor:** View assigned lectures, start and stop attendance sessions,
+  and display the live QR code.
+- **Student:** Activate an admin-created account with an email OTP, sign in on
+  a trusted device, review attendance, and scan an active QR code. Camera and
+  location access are required for in-person QR check-in; the QR payload can
+  also be pasted into the check-in form.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Run `npm run lint` and `npm run build` to validate the frontend.

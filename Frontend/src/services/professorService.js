@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:3000/api/professors";
+import { API_BASE_URL } from "./apiConfig";
+
+const API_URL = `${API_BASE_URL}/professors`;
 
 async function professorRequest(endpoint, options = {}) {
   const token = localStorage.getItem("adminToken");

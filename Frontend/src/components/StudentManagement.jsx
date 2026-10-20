@@ -11,6 +11,7 @@ const emptyForm = {
   class: "",
   division: "",
   phone: "",
+  whatsappNumber: "",
 };
 
 function getStudentId(student) {
@@ -25,8 +26,8 @@ function getErrorMessage(error) {
 
 function downloadSampleCSV() {
   const csv = [
-    "Name,Roll No,Class,Division,Email,Batch,Phone",
-    "Rahul Sharma,1,TYBCA,A,rahul@example.com,2026,9876543210",
+    "Name,Roll No,Class,Division,Email,Batch,Phone,WhatsApp Number",
+    "Rahul Sharma,1,TYBCA,A,rahul@example.com,2026,9876543210,+919876543210",
   ].join("\r\n");
 
   const blob = new Blob(["\uFEFF", csv], {
@@ -49,6 +50,7 @@ function StudentManagement({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState(null);
+  const [resettingDeviceId, setResettingDeviceId] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -104,6 +106,7 @@ function StudentManagement({ onBack }) {
       class: student.class || "",
       division: student.division || "",
       phone: student.phone || "",
+      whatsappNumber: student.whatsappNumber || "",
     });
     setError("");
     setNotice("");
@@ -139,6 +142,7 @@ function StudentManagement({ onBack }) {
       class: form.class.trim(),
       division: form.division.trim(),
       phone: form.phone.trim(),
+      whatsappNumber: form.whatsappNumber.trim(),
     };
 
     try {
@@ -190,6 +194,27 @@ function StudentManagement({ onBack }) {
       setError(getErrorMessage(err));
     } finally {
       setDeletingStudentId(null);
+    }
+  };
+
+  const handleResetTrustedDevice = async (student) => {
+    const studentId = getStudentId(student);
+    if (!studentId) {
+      setError("Student ID is missing. Trusted device was not reset.");
+      return;
+    }
+    if (!window.confirm(`Reset the trusted device for ${student.name || "this student"}? They will be able to sign in from a new device.`)) return;
+
+    setResettingDeviceId(studentId);
+    setError("");
+    setNotice("");
+    try {
+      const result = await studentService.resetTrustedDevice(studentId);
+      setNotice(result.message || "Trusted device reset successfully.");
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setResettingDeviceId(null);
     }
   };
 
@@ -330,6 +355,7 @@ function StudentManagement({ onBack }) {
                 <th>Batch</th>
                 <th>Email</th>
                 <th>Phone</th>
+                <th>WhatsApp</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -337,7 +363,7 @@ function StudentManagement({ onBack }) {
             <tbody>
               {!loading && students.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="sm-empty">
+                  <td colSpan="8" className="sm-empty">
                     No students found.
                   </td>
                 </tr>
@@ -356,6 +382,7 @@ function StudentManagement({ onBack }) {
                   <td>{student.batch || "—"}</td>
                   <td>{student.email || "—"}</td>
                   <td>{student.phone || "—"}</td>
+                  <td>{student.whatsappNumber || "—"}</td>
                   <td>
                     <div className="sm-actions">
                       <button
@@ -377,6 +404,17 @@ function StudentManagement({ onBack }) {
                       <button
                         type="button"
                         className="sm-text-action"
+                        onClick={() => handleResetTrustedDevice(student)}
+                        disabled={resettingDeviceId === getStudentId(student)}
+                      >
+                        {resettingDeviceId === getStudentId(student)
+                          ? "Resetting..."
+                          : "Reset device"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="sm-text-action"
                         onClick={() => handleDeleteStudent(student)}
                         disabled={deletingStudentId === getStudentId(student)}
                       >
@@ -391,7 +429,7 @@ function StudentManagement({ onBack }) {
 
               {loading && (
                 <tr>
-                  <td colSpan="7" className="sm-empty">
+                  <td colSpan="8" className="sm-empty">
                     Loading student records...
                   </td>
                 </tr>
@@ -407,6 +445,8 @@ function StudentManagement({ onBack }) {
             <h3>Bulk upload</h3>
             <p>
               Import student records from a CSV or Excel spreadsheet.
+              WhatsApp Number is optional; include the country code (for
+              example, +919876543210) to enable attendance reminders.
               Maximum file size: 5 MB.
             </p>
           </div>
@@ -581,6 +621,21 @@ function StudentManagement({ onBack }) {
                     value={form.phone}
                     onChange={handleFormChange}
                   />
+                </div>
+
+                <div className="sm-form-group sm-full-width">
+                  <label htmlFor="sm-whatsapp">WhatsApp number</label>
+                  <input
+                    id="sm-whatsapp"
+                    name="whatsappNumber"
+                    type="tel"
+                    value={form.whatsappNumber}
+                    onChange={handleFormChange}
+                    placeholder="+919876543210"
+                    pattern="\\+[1-9][0-9]{7,14}"
+                    title="Include country code, for example +919876543210"
+                  />
+                  <small>Optional. Use international format with a + and country code.</small>
                 </div>
               </div>
 

@@ -35,6 +35,72 @@
     box-sizing: border-box;
 }
 
+.cm-classroom-form {
+    padding: 16px;
+    margin: 16px 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.cm-classroom-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.cm-classroom-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 13px;
+    border: 1px solid #e7ecf2;
+    border-radius: 11px;
+    background: #fff;
+}
+
+.cm-classroom-item > div {
+    display: grid;
+    flex: 1;
+    gap: 4px;
+    min-width: 0;
+}
+
+.cm-classroom-item strong {
+    overflow: hidden;
+    color: #263954;
+    font-size: 13px;
+    text-overflow: ellipsis;
+}
+
+.cm-classroom-item small {
+    color: #77859a;
+    font-size: 10px;
+}
+
+.cm-classroom-icon {
+    display: grid;
+    flex: 0 0 36px;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    color: #087e78;
+    background: #e0f7f3;
+}
+
+@media (max-width: 650px) {
+    .cm-classroom-list {
+        grid-template-columns: 1fr;
+    }
+
+    .cm-classroom-item {
+        flex-wrap: wrap;
+    }
+}
+
 /* Page Header */
 
 .cm-page-header {

@@ -1,5 +1,7 @@
 
-const API_URL = "http://localhost:3000/api/admin";
+import { API_BASE_URL } from "./apiConfig";
+
+const API_URL = `${API_BASE_URL}/admin`;
 
 async function studentRequest(endpoint, options = {}) {
   const token = localStorage.getItem("adminToken");
@@ -65,6 +67,12 @@ export const studentService = {
   deleteStudent(id) {
     return studentRequest(`/students/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    });
+  },
+
+  resetTrustedDevice(id) {
+    return studentRequest(`/students/${encodeURIComponent(id)}/reset-device`, {
+      method: "PATCH",
     });
   },
 

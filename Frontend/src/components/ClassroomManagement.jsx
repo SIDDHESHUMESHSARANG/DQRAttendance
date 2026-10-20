@@ -1,9 +1,10 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./ClassroomManagement.css";
-import { getClassrooms } from "../services/classroomService";
+import { createClassroom, getClassrooms, updateClassroom } from "../services/classroomService";
+import { API_BASE_URL } from "../services/apiConfig";
 
-const API = "http://localhost:3000/api";
+const API = API_BASE_URL;
 
 const initialForm = {
     assignedClass: "",
@@ -13,6 +14,14 @@ const initialForm = {
     date: "",
     startTime: "",
     endTime: "",
+};
+
+const initialClassroomForm = {
+    classroomName: "",
+    building: "",
+    latitude: "",
+    longitude: "",
+    radiusMeters: "30",
 };
 
 const getId = (item) => item?._id || item?.id || "";
@@ -106,6 +115,9 @@ function ClassroomManagement({ onBack }) {
     const [professors, setProfessors] = useState([]);
     const [lectures, setLectures] = useState([]);
     const [form, setForm] = useState(initialForm);
+    const [classroomForm, setClassroomForm] = useState(initialClassroomForm);
+    const [editingClassroom, setEditingClassroom] = useState(null);
+    const [showClassroomForm, setShowClassroomForm] = useState(false);
 
     // Default: show today's lectures, not every lecture.
     const [dateFilter, setDateFilter] = useState("today");
@@ -114,6 +126,7 @@ function ClassroomManagement({ onBack }) {
     );
 
     const [showForm, setShowForm] = useState(false);
+    const [editingLecture, setEditingLecture] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [cancellingId, setCancellingId] = useState("");
@@ -122,10 +135,10 @@ function ClassroomManagement({ onBack }) {
 
     const token = () => localStorage.getItem("adminToken");
 
-    const headers = () => ({
+    const headers = useCallback(() => ({
         "Content-Type": "application/json",
         Authorization: `Bearer ${token()}`,
-    });
+    }), []);
 
     const readResponse = async (response, fallback) => {
         const data = await response.json().catch(() => ({}));
@@ -137,7 +150,7 @@ function ClassroomManagement({ onBack }) {
         return data;
     };
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         setError("");
 
@@ -173,22 +186,11 @@ function ClassroomManagement({ onBack }) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [headers]);
 
     useEffect(() => {
-        loadData();
-    }, []);
-
-    // Keep the chosen date in sync with the selected quick filter.
-    useEffect(() => {
-        if (dateFilter === "today") {
-            setSearchDate(getRelativeDate(0));
-        } else if (dateFilter === "tomorrow") {
-            setSearchDate(getRelativeDate(1));
-        } else if (dateFilter === "yesterday") {
-            setSearchDate(getRelativeDate(-1));
-        }
-    }, [dateFilter]);
+        Promise.resolve().then(loadData);
+    }, [loadData]);
 
     const activeClassrooms = useMemo(
         () => classrooms.filter((room) => room.isActive !== false),
@@ -268,6 +270,65 @@ function ClassroomManagement({ onBack }) {
         }));
     };
 
+    const changeClassroomField = (event) => {
+        const { name, value } = event.target;
+        setClassroomForm((previous) => ({ ...previous, [name]: value }));
+    };
+
+    const openClassroomForm = (classroom = null) => {
+        setEditingClassroom(classroom);
+        setClassroomForm(classroom ? {
+            classroomName: classroom.classroomName || "",
+            building: classroom.building || "",
+            latitude: String(classroom.latitude ?? ""),
+            longitude: String(classroom.longitude ?? ""),
+            radiusMeters: String(classroom.radiusMeters ?? 30),
+        } : initialClassroomForm);
+        setShowClassroomForm(true);
+        setError("");
+        setNotice("");
+    };
+
+    const saveClassroom = async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+        setNotice("");
+        const payload = {
+            classroomName: classroomForm.classroomName.trim(),
+            building: classroomForm.building.trim(),
+            latitude: Number(classroomForm.latitude),
+            longitude: Number(classroomForm.longitude),
+            radiusMeters: Number(classroomForm.radiusMeters),
+        };
+
+        if (
+            !payload.classroomName ||
+            !Number.isFinite(payload.latitude) ||
+            !Number.isFinite(payload.longitude) ||
+            !Number.isFinite(payload.radiusMeters)
+        ) {
+            setError("Enter a classroom name and valid numeric coordinates and radius.");
+            setSaving(false);
+            return;
+        }
+
+        try {
+            const result = editingClassroom
+                ? await updateClassroom(getId(editingClassroom), payload)
+                : await createClassroom(payload);
+            setNotice(result.message || (editingClassroom ? "Classroom updated." : "Classroom created."));
+            setShowClassroomForm(false);
+            setEditingClassroom(null);
+            setClassroomForm(initialClassroomForm);
+            await loadData();
+        } catch (requestError) {
+            setError(requestError.message || "Unable to save classroom.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const changeClass = (event) => {
         setForm((previous) => ({
             ...previous,
@@ -279,7 +340,24 @@ function ClassroomManagement({ onBack }) {
     const openForm = () => {
         setError("");
         setNotice("");
+        setEditingLecture(null);
         setForm(initialForm);
+        setShowForm(true);
+    };
+
+    const openEditForm = (lecture) => {
+        setError("");
+        setNotice("");
+        setEditingLecture(lecture);
+        setForm({
+            assignedClass: lecture.assignedClass || "",
+            subject: lecture.subject || "",
+            classroomName: classroomNameFor(lecture) === "Classroom" ? "" : classroomNameFor(lecture),
+            building: "",
+            date: lecture.date ? String(lecture.date).slice(0, 10) : "",
+            startTime: displayTime(lecture.startTime),
+            endTime: displayTime(lecture.endTime),
+        });
         setShowForm(true);
     };
 
@@ -287,6 +365,7 @@ function ClassroomManagement({ onBack }) {
         if (saving) return;
 
         setShowForm(false);
+        setEditingLecture(null);
         setForm(initialForm);
         setError("");
     };
@@ -323,6 +402,15 @@ function ClassroomManagement({ onBack }) {
             return;
         }
 
+        const selectedClassroom = activeClassrooms.find(
+            (room) => normalise(room.classroomName) === normalise(classroomName)
+        );
+
+        if (!selectedClassroom) {
+            setError("Select a saved, active classroom location. Add it under Classroom locations first.");
+            return;
+        }
+
         const startTime = timeTo24(form.startTime);
         const endTime = timeTo24(form.endTime);
         const startMinutes = timeToMinutes(form.startTime);
@@ -346,18 +434,24 @@ function ClassroomManagement({ onBack }) {
         setSaving(true);
 
         try {
-            const response = await fetch(`${API}/lectures`, {
-                method: "POST",
+            const response = await fetch(
+                editingLecture
+                    ? `${API}/lectures/${getId(editingLecture)}`
+                    : `${API}/lectures`,
+                {
+                method: editingLecture ? "PUT" : "POST",
                 headers: headers(),
                 body: JSON.stringify({
                     subject: form.subject,
                     assignedClass: form.assignedClass,
                     classroomName,
+                    classroomId: getId(selectedClassroom),
                     date: form.date,
                     startTime,
                     endTime,
                 }),
-            });
+                }
+            );
 
             const data = await readResponse(
                 response,
@@ -374,8 +468,9 @@ function ClassroomManagement({ onBack }) {
             }
 
             setShowForm(false);
+            setEditingLecture(null);
             setForm(initialForm);
-            setNotice("Lecture created successfully.");
+            setNotice(data.message || (editingLecture ? "Lecture updated successfully." : "Lecture created successfully."));
 
             await loadData();
         } catch (err) {
@@ -468,6 +563,13 @@ function ClassroomManagement({ onBack }) {
         setDateFilter("specific");
     };
 
+    const chooseDateFilter = (filter) => {
+        setDateFilter(filter);
+        if (filter === "today") setSearchDate(getRelativeDate(0));
+        if (filter === "tomorrow") setSearchDate(getRelativeDate(1));
+        if (filter === "yesterday") setSearchDate(getRelativeDate(-1));
+    };
+
     const selectedDateLabel = {
         today: "Today's Lectures",
         tomorrow: "Tomorrow's Lectures",
@@ -529,11 +631,73 @@ function ClassroomManagement({ onBack }) {
                 </div>
             )}
 
+            <div className="cm-panel">
+                <div className="cm-panel-heading">
+                    <div>
+                        <h3>Classroom locations</h3>
+                        <p>Set the GPS point and permitted attendance radius for each room.</p>
+                    </div>
+                    <button
+                        type="button"
+                        className="cm-button cm-button-primary"
+                        onClick={() => openClassroomForm()}
+                    >
+                        + Add Classroom
+                    </button>
+                </div>
+
+                {showClassroomForm && (
+                    <form className="cm-classroom-form" onSubmit={saveClassroom}>
+                        <div className="cm-form-grid">
+                            <div className="cm-field">
+                                <label htmlFor="cm-room-name">Classroom name *</label>
+                                <input id="cm-room-name" name="classroomName" value={classroomForm.classroomName} onChange={changeClassroomField} required />
+                            </div>
+                            <div className="cm-field">
+                                <label htmlFor="cm-room-building">Building</label>
+                                <input id="cm-room-building" name="building" value={classroomForm.building} onChange={changeClassroomField} />
+                            </div>
+                            <div className="cm-field">
+                                <label htmlFor="cm-room-lat">Latitude *</label>
+                                <input id="cm-room-lat" name="latitude" type="number" min="-90" max="90" step="any" value={classroomForm.latitude} onChange={changeClassroomField} required />
+                            </div>
+                            <div className="cm-field">
+                                <label htmlFor="cm-room-long">Longitude *</label>
+                                <input id="cm-room-long" name="longitude" type="number" min="-180" max="180" step="any" value={classroomForm.longitude} onChange={changeClassroomField} required />
+                            </div>
+                            <div className="cm-field">
+                                <label htmlFor="cm-room-radius">Attendance radius (metres) *</label>
+                                <input id="cm-room-radius" name="radiusMeters" type="number" min="1" max="500" value={classroomForm.radiusMeters} onChange={changeClassroomField} required />
+                            </div>
+                        </div>
+                        <div className="cm-form-actions">
+                            <button type="button" className="cm-button cm-button-secondary" onClick={() => setShowClassroomForm(false)} disabled={saving}>Cancel</button>
+                            <button type="submit" className="cm-button cm-button-primary" disabled={saving}>{saving ? "Saving…" : editingClassroom ? "Save classroom" : "Create classroom"}</button>
+                        </div>
+                    </form>
+                )}
+
+                <div className="cm-classroom-list">
+                    {!loading && classrooms.length === 0 && <div className="cm-empty">No classroom locations yet. Add one to enable location-verified attendance.</div>}
+                    {classrooms.map((classroom) => (
+                        <article className="cm-classroom-item" key={getId(classroom)}>
+                            <span className="cm-classroom-icon">⌖</span>
+                            <div>
+                                <strong>{classroom.classroomName}</strong>
+                                <small>{classroom.building || "Campus"} · {classroom.radiusMeters || 30}m radius</small>
+                                <small>{classroom.latitude}, {classroom.longitude}</small>
+                            </div>
+                            <button type="button" className="cm-button cm-button-edit" onClick={() => openClassroomForm(classroom)}>Edit</button>
+                        </article>
+                    ))}
+                </div>
+            </div>
+
             {showForm && (
                 <div className="cm-panel">
                     <div className="cm-panel-heading">
                         <div>
-                            <h3>Create Lecture</h3>
+                            <h3>{editingLecture ? "Edit Lecture" : "Create Lecture"}</h3>
                             <p>
                                 Select a class and subject, then fill in the lecture details.
                             </p>
@@ -633,7 +797,7 @@ function ClassroomManagement({ onBack }) {
                             </datalist>
 
                             <small>
-                                Enter any classroom name. Selecting an existing suggestion is optional.
+                                Select a saved classroom location so attendance scans can verify the room.
                             </small>
                         </div>
 
@@ -697,7 +861,9 @@ function ClassroomManagement({ onBack }) {
                                 className="cm-button cm-button-primary"
                                 disabled={saving || loading}
                             >
-                                {saving ? "Creating..." : "Create Lecture"}
+                                {saving
+                                    ? editingLecture ? "Saving..." : "Creating..."
+                                    : editingLecture ? "Save Changes" : "Create Lecture"}
                             </button>
                         </div>
                     </form>
@@ -721,7 +887,7 @@ function ClassroomManagement({ onBack }) {
                         className={`cm-date-filter-button ${
                             dateFilter === "today" ? "active" : ""
                         }`}
-                        onClick={() => setDateFilter("today")}
+                        onClick={() => chooseDateFilter("today")}
                     >
                         Today
                     </button>
@@ -731,7 +897,7 @@ function ClassroomManagement({ onBack }) {
                         className={`cm-date-filter-button ${
                             dateFilter === "tomorrow" ? "active" : ""
                         }`}
-                        onClick={() => setDateFilter("tomorrow")}
+                        onClick={() => chooseDateFilter("tomorrow")}
                     >
                         Tomorrow
                     </button>
@@ -741,7 +907,7 @@ function ClassroomManagement({ onBack }) {
                         className={`cm-date-filter-button ${
                             dateFilter === "yesterday" ? "active" : ""
                         }`}
-                        onClick={() => setDateFilter("yesterday")}
+                        onClick={() => chooseDateFilter("yesterday")}
                     >
                         Yesterday
                     </button>
@@ -751,7 +917,7 @@ function ClassroomManagement({ onBack }) {
                         className={`cm-date-filter-button ${
                             dateFilter === "specific" ? "active" : ""
                         }`}
-                        onClick={() => setDateFilter("specific")}
+                        onClick={() => chooseDateFilter("specific")}
                     >
                         Specific Date
                     </button>
@@ -853,6 +1019,13 @@ function ClassroomManagement({ onBack }) {
 
                                 {lecture.status === "scheduled" && (
                                     <div className="cm-form-actions">
+                                        <button
+                                            type="button"
+                                            className="cm-button cm-button-edit"
+                                            onClick={() => openEditForm(lecture)}
+                                        >
+                                            Edit Lecture
+                                        </button>
                                         <button
                                             type="button"
                                             className="cm-button cm-button-cancel"

@@ -4,10 +4,26 @@ import "./App.css";
 import StudentManagement from "./components/StudentManagement";
 import ProfessorManagement from "./components/ProfessorManagement";
 import ClassroomManagement from "./components/ClassroomManagement";
+import AdminAttendance from "./components/AdminAttendance";
+import AdminOverview from "./components/AdminOverview";
 import Professor from "./Professor.jsx";
+import StudentPortal from "./StudentPortal.jsx";
+import { studentPortalService } from "./services/studentPortalService";
+import { API_BASE_URL } from "./services/apiConfig";
 
-const API_URL = "http://localhost:3000/api/admin";
-const PROFESSOR_API_URL = "http://localhost:3000/api/professors";
+const API_URL = `${API_BASE_URL}/admin`;
+const PROFESSOR_API_URL = `${API_BASE_URL}/professors`;
+
+function getStudentDeviceId() {
+  const key = "studentDeviceUuid";
+  let deviceId = localStorage.getItem(key);
+  if (!deviceId) {
+    deviceId = window.crypto?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, deviceId);
+  }
+  return deviceId;
+}
 
 // Reusable API request function
 async function apiRequest(endpoint, body, baseURL = API_URL) {
@@ -63,6 +79,9 @@ function App() {
         localStorage.getItem("professorData")
       ) {
         return "professorDashboard";
+      }
+      if (localStorage.getItem("studentToken")) {
+        return "studentDashboard";
       }
     } catch {
       return "roles";
@@ -158,8 +177,35 @@ function App() {
     setNotice("");
 
     if (role === "student") {
-      setError("Student login has not been connected yet.");
-      setLoading(false);
+      try {
+        const data = await studentPortalService.login(
+          email.trim(),
+          password,
+          getStudentDeviceId()
+        );
+
+        if (!data.token) {
+          throw new Error("Invalid response received from Student server.");
+        }
+
+        localStorage.setItem("studentToken", data.token);
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminData");
+        localStorage.removeItem("professorToken");
+        localStorage.removeItem("professorData");
+        setAdmin(null);
+        setProfessor(null);
+        setPassword("");
+        setPage("studentDashboard");
+      } catch (err) {
+        setError(
+          err instanceof TypeError
+            ? "Cannot connect to the backend. Check that the server is running."
+            : err.message
+        );
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -261,7 +307,11 @@ function App() {
         setPage("verify");
         setNotice("OTP sent successfully. Check your registered email.");
       } else {
-        setError("Student registration has not been connected yet.");
+        await studentPortalService.requestOtp(email.trim());
+        setPassword("");
+        setOtp("");
+        setPage("verify");
+        setNotice("Activation OTP sent. Check your registered email.");
       }
     } catch (err) {
       setError(
@@ -314,7 +364,19 @@ function App() {
         setPage("login");
         setNotice("Account activated successfully. You can now sign in.");
       } else {
-        setError("Student OTP verification has not been connected yet.");
+        if (password.length < 8) {
+          throw new Error("Password must be at least 8 characters long.");
+        }
+
+        await studentPortalService.verifyOtp(
+          email.trim(),
+          otp.trim(),
+          password
+        );
+        setPassword("");
+        setOtp("");
+        setPage("login");
+        setNotice("Account activated successfully. You can now sign in.");
       }
     } catch (err) {
       setError(
@@ -380,6 +442,16 @@ function App() {
     setNotice("");
   };
 
+  const handleStudentLogout = () => {
+    localStorage.removeItem("studentToken");
+    setEmail("");
+    setPassword("");
+    setRole("student");
+    setPage("roles");
+    setError("");
+    setNotice("");
+  };
+
   // Return to role selection
   const backToRoles = () => {
     setEmail("");
@@ -404,6 +476,10 @@ function App() {
   // =====================================================
   if (page === "professorDashboard" && professor) {
     return <Professor onLogout={handleProfessorLogout} />;
+  }
+
+  if (page === "studentDashboard") {
+    return <StudentPortal onLogout={handleStudentLogout} />;
   }
 
   // =====================================================
@@ -444,7 +520,7 @@ function App() {
           >
             <span className="dashboard-brand-mark">Q</span>
             <span className="dashboard-brand-name">
-              QR Attendance
+              DQRAttendance
               <small>ADMIN WORKSPACE</small>
             </span>
           </a>
@@ -590,184 +666,16 @@ function App() {
                 onBack={() => openSection("overview")}
               />
             ) : activeSection === "overview" ? (
-              <>
-                <section className="dashboard-greeting">
-                  <div>
-                    <p className="dashboard-overline">OVERVIEW</p>
-                    <h2>Welcome back, {adminName}</h2>
-                    <p>
-                      Manage your attendance system from one place.
-                    </p>
-                  </div>
-
-                  <div className="greeting-mark" aria-hidden="true">
-                    <span>Q</span>
-                  </div>
-                </section>
-
-                <section className="dashboard-section">
-                  <div className="section-heading">
-                    <div>
-                      <h3>Account overview</h3>
-                      <p>Your administrator account information.</p>
-                    </div>
-
-                    <span className="account-status">
-                      <span />
-                      Signed in
-                    </span>
-                  </div>
-
-                  <div className="account-details-card">
-                    <div className="account-details-header">
-                      <div className="account-large-avatar">
-                        {initials || "A"}
-                      </div>
-
-                      <div className="account-primary-info">
-                        <h4>{adminName}</h4>
-                        <p>{admin.email || "Email not available"}</p>
-                      </div>
-
-                      <span className="account-role-badge">ADMIN</span>
-                    </div>
-
-                    <div className="account-detail-grid">
-                      <div className="account-detail">
-                        <span>FULL NAME</span>
-                        <strong>{admin.name || "Not provided"}</strong>
-                      </div>
-
-                      <div className="account-detail">
-                        <span>EMAIL ADDRESS</span>
-                        <strong>{admin.email || "Not provided"}</strong>
-                      </div>
-
-                      <div className="account-detail">
-                        <span>ACCOUNT ROLE</span>
-                        <strong>{admin.role || "Admin"}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="dashboard-section">
-                  <div className="section-heading">
-                    <div>
-                      <h3>Management workspace</h3>
-                      <p>Administration modules for your system.</p>
-                    </div>
-                  </div>
-
-                  <div className="management-grid">
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("students")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("students");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon students-icon">
-                        S
-                      </span>
-                      <div>
-                        <h4>Students</h4>
-                        <p>Student records and bulk uploads.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("professors")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("professors");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon professors-icon">
-                        P
-                      </span>
-                      <div>
-                        <h4>Professors</h4>
-                        <p>Professor records and registration.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("classrooms")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("classrooms");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon classrooms-icon">
-                        C
-                      </span>
-                      <div>
-                        <h4>Classrooms</h4>
-                        <p>
-                          Manage classroom locations and attendance radius.
-                        </p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("attendance")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("attendance");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon attendance-icon">
-                        A
-                      </span>
-                      <div>
-                        <h4>Attendance</h4>
-                        <p>Attendance records and reports.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-                  </div>
-                </section>
-
-                <footer className="dashboard-footer">
-                  <span>QR Attendance System</span>
-                  <span>Administrator workspace</span>
-                </footer>
-              </>
+              <AdminOverview admin={admin} onNavigate={openSection} />
+            ) : activeSection === "attendance" ? (
+              <AdminAttendance onBack={() => openSection("overview")} />
             ) : (
               <section className="dashboard-section">
                 <div className="section-heading">
                   <div>
                     <p className="dashboard-overline">MANAGEMENT</p>
                     <h3>{sectionTitles[activeSection]}</h3>
-                    <p>This module has not been connected yet.</p>
+                    <p>Select a workspace section from the navigation menu.</p>
                   </div>
                 </div>
 
@@ -801,7 +709,7 @@ function App() {
           }}
         >
           <span className="brand-mark">QR</span>
-          <span>QR Attendance System</span>
+          <span>DQRAttendance</span>
         </a>
 
         <span className="header-caption">
@@ -816,7 +724,7 @@ function App() {
             <p className="eyebrow">WELCOME</p>
             <h1>Select your role</h1>
             <p className="form-description">
-              Choose how you want to access the QR Attendance System.
+              Choose how you want to access DQRAttendance.
             </p>
           </div>
 
@@ -849,7 +757,7 @@ function App() {
         <section className="auth-layout">
           <aside className="intro-panel">
             <div className="intro-content">
-              <span className="intro-tag">QR ATTENDANCE SYSTEM</span>
+              <span className="intro-tag">DQRAttendance</span>
 
               <h1>
                 Attendance
@@ -878,7 +786,7 @@ function App() {
               </div>
             </div>
 
-            <p className="intro-footer">QR ATTENDANCE SYSTEM</p>
+            <p className="intro-footer">DQRAttendance</p>
           </aside>
 
           <section className="form-panel">
@@ -1008,7 +916,7 @@ function App() {
                       ? "Enter your details to create an Admin account."
                       : role === "professor"
                       ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
-                      : "Student registration has not been connected yet."}
+                      : "Activate the student account created for you by your Admin using your registered email."}
                   </p>
 
                   <form onSubmit={handleRegister}>
@@ -1088,7 +996,7 @@ function App() {
                     <button
                       className="primary-button"
                       type="submit"
-                      disabled={loading || role === "student"}
+                      disabled={loading}
                     >
                       {loading ? "Please wait..." : "Send OTP"}
                       {!loading && <span aria-hidden="true"> →</span>}
@@ -1156,15 +1064,15 @@ function App() {
                       />
                     </div>
 
-                    {role === "professor" && (
+                    {(role === "professor" || role === "student") && (
                       <div className="form-group">
-                        <label htmlFor="professor-new-password">
+                        <label htmlFor="account-new-password">
                           Create password
                         </label>
 
                         <div className="password-field">
                           <input
-                            id="professor-new-password"
+                            id="account-new-password"
                             type={showPassword ? "text" : "password"}
                             placeholder="At least 8 characters"
                             value={password}
@@ -1201,12 +1109,13 @@ function App() {
                       disabled={
                         loading ||
                         otp.length !== 6 ||
-                        (role === "professor" && password.length < 8)
+                        ((role === "professor" || role === "student") &&
+                          password.length < 8)
                       }
                     >
                       {loading
                         ? "Verifying..."
-                        : role === "professor"
+                        : role === "professor" || role === "student"
                         ? "Verify OTP and create password"
                         : "Verify email"}
                     </button>
@@ -1230,7 +1139,7 @@ function App() {
 
       <footer className="page-footer">
         <span>
-          © {new Date().getFullYear()} QR Attendance System
+          © {new Date().getFullYear()} DQRAttendance
         </span>
         <span>SECURE ATTENDANCE MANAGEMENT</span>
       </footer>

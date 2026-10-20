@@ -55,6 +55,7 @@ const formatStudent = (student) => ({
     division: student.academicDetails.division,
     email: student.email,
     phone: student.phone || "",
+    whatsappNumber: student.whatsappNumber || "",
     isActivated: student.isActivated,
     createdAt: student.createdAt,
     updatedAt: student.updatedAt,
@@ -485,6 +486,7 @@ export const addStudent = async (req, res) => {
             course,
             division,
             phone,
+            whatsappNumber,
         } = req.body || {};
 
         const rawName = fullName ?? name;
@@ -526,6 +528,25 @@ export const addStudent = async (req, res) => {
             });
         }
 
+        if (
+            whatsappNumber !== undefined &&
+            typeof whatsappNumber !== "string"
+        ) {
+            return res.status(400).json({
+                message: "WhatsApp number must be a string.",
+            });
+        }
+
+        const normalizedWhatsapp = whatsappNumber?.trim() || "";
+        if (
+            normalizedWhatsapp &&
+            !/^\+[1-9]\d{7,14}$/.test(normalizedWhatsapp)
+        ) {
+            return res.status(400).json({
+                message: "WhatsApp number must include country code, e.g. +919876543210",
+            });
+        }
+
         const duplicate = await findStudentDuplicate({
             email: normalizedEmail,
             rollNo: parsedRollNo,
@@ -547,6 +568,7 @@ export const addStudent = async (req, res) => {
         const student = await Student.create({
             email: normalizedEmail,
             phone: typeof phone === "string" ? phone.trim() : "",
+            whatsappNumber: normalizedWhatsapp || null,
             isActivated: false,
             academicDetails: {
                 fullName: studentName,
@@ -634,7 +656,7 @@ export const getStudents = async (req, res) => {
 
         const students = await Student.find(filter)
             .select(
-                "email phone isActivated academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division createdAt updatedAt"
+                "email phone whatsappNumber isActivated academicDetails.fullName academicDetails.rollNo academicDetails.batch academicDetails.class academicDetails.division createdAt updatedAt"
             )
             .sort({ createdAt: -1 })
             .lean();
@@ -786,16 +808,22 @@ export const updateStudent = async (req, res) => {
             student.phone = phone.trim();
         }
         if (whatsappNumber !== undefined) {
-            if (
-                typeof whatsappNumber !== "string" ||
-                !/^\+[1-9]\d{7,14}$/.test(whatsappNumber.trim())
-            ) {
+            if (typeof whatsappNumber !== "string") {
                 return res.status(400).json({
                     message: "WhatsApp number must include country code, e.g. +919876543210",
                 });
             }
 
-            student.whatsappNumber = whatsappNumber.trim();
+            const normalizedWhatsapp = whatsappNumber.trim();
+            if (
+                normalizedWhatsapp &&
+                !/^\+[1-9]\d{7,14}$/.test(normalizedWhatsapp)
+            ) {
+                return res.status(400).json({
+                    message: "WhatsApp number must include country code, e.g. +919876543210",
+                });
+            }
+            student.whatsappNumber = normalizedWhatsapp || null;
         }
 
         const duplicate = await findStudentDuplicate({
@@ -1065,6 +1093,11 @@ export const bulkUploadStudents = async (req, res) => {
                 "mobileno",
                 "phonenumber",
             ]);
+            const whatsappNumber = getValue(row, [
+                "whatsapp",
+                "whatsappnumber",
+                "whatsappmobile",
+            ]);
 
             const rollNo = Number(rollText);
 
@@ -1086,6 +1119,14 @@ export const bulkUploadStudents = async (req, res) => {
                     "Roll number must be a positive whole number",
                     email
                 );
+                return;
+            }
+
+            if (
+                whatsappNumber &&
+                !/^\+[1-9]\d{7,14}$/.test(whatsappNumber)
+            ) {
+                fail("WhatsApp number must include country code, e.g. +919876543210", email);
                 return;
             }
 
@@ -1116,6 +1157,7 @@ export const bulkUploadStudents = async (req, res) => {
                 batch,
                 division,
                 phone,
+                whatsappNumber,
             });
         });
 
@@ -1151,6 +1193,7 @@ export const bulkUploadStudents = async (req, res) => {
                 const student = await Student.create({
                     email: row.email,
                     phone: row.phone,
+                    whatsappNumber: row.whatsappNumber || null,
                     isActivated: false,
                     academicDetails: {
                         fullName: row.name,
