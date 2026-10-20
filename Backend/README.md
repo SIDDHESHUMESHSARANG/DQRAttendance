@@ -1,5 +1,18 @@
 # Backend setup
 
+## Deploying the API to Render
+
+Configure the Render web service with:
+
+- **Root Directory:** `Backend`
+- **Build Command:** `npm ci && npm run build`
+- **Start Command:** `npm start`
+
+The build command checks the server entry point for syntax errors; the API is
+run by the start command. Set required backend configuration, including
+`MONGO_URI`, `JWT_SECRET`, and `OTP_SECRET`, in Render's Environment settings.
+Do not commit or upload `Backend/.env`; local `.env` files are for development.
+
 ## Twilio WhatsApp low-attendance alerts
 
 ### Sandbox testing
