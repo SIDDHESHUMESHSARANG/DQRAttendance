@@ -5,6 +5,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import XLSX from "xlsx";
+import Professor from "../models/Professor.js";
+import Classroom from "../models/Classroom.js";
 import Lecture from "../models/Lecture.js";
 import Student from "../models/StudentModel.js";
 import RevokedToken from "../models/RevokedToken.js";
@@ -843,7 +845,55 @@ export const updateStudent = async (req, res) => {
         });
     }
 };
+// ==================================================
+// DELETE STUDENT
+// ==================================================
 
+export const deleteStudent = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate student ID
+    if (!/^[a-f\d]{24}$/i.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid student ID.",
+      });
+    }
+
+    // Find student
+    const student = await Student.findById(id);
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found.",
+      });
+    }
+
+    // Delete only the student record.
+    // Attendance records are NOT deleted.
+    await Student.deleteOne({ _id: id });
+
+    return res.status(200).json({
+      success: true,
+      message: "Student deleted successfully.",
+      student: {
+        id: student._id,
+        name: student.academicDetails?.fullName || "",
+        rollNo: student.academicDetails?.rollNo ?? null,
+        email: student.email,
+      },
+    });
+  } catch (error) {
+    console.error("Delete student error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete student.",
+    });
+  }
+};
 // ==================================================
 // BULK UPLOAD STUDENTS - CSV / EXCEL
 // ==================================================
@@ -1826,6 +1876,160 @@ export const getAttendanceByDate = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: "Unable to fetch date-wise attendance.",
+        });
+    }
+};
+
+/**
+ * GET /api/admin/dashboard/stats
+ * Returns live statistics for the Admin Overview.
+ */
+export const getAdminDashboardStats = async (req, res) => {
+    try {
+        // Today's date boundaries in India Standard Time.
+        const dateParts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).formatToParts(new Date());
+
+        const dateValues = Object.fromEntries(
+            dateParts.map(({ type, value }) => [type, value])
+        );
+
+        const today = `${dateValues.year}-${dateValues.month}-${dateValues.day}`;
+
+        const todayStart = new Date(`${today}T00:00:00+05:30`);
+        const tomorrowStart = new Date(
+            new Date(todayStart).getTime() + 24 * 60 * 60 * 1000
+        );
+
+        const [
+            totalStudents,
+            totalProfessors,
+            activeProfessors,
+            totalClassrooms,
+            activeClassrooms,
+            totalLectures,
+            todaysLectures,
+            completedLectures,
+            completedLectureRecords,
+            students,
+        ] = await Promise.all([
+            Student.countDocuments({}),
+
+            Professor.countDocuments({}),
+            Professor.countDocuments({ isActive: true }),
+
+            Classroom.countDocuments({}),
+            Classroom.countDocuments({ isActive: true }),
+
+            Lecture.countDocuments({}),
+            Lecture.countDocuments({
+                date: { $gte: todayStart, $lt: tomorrowStart },
+            }),
+            Lecture.countDocuments({ status: "completed" }),
+
+            Lecture.find({ status: "completed" })
+                .select("_id assignedClass")
+                .lean(),
+
+            Student.find({})
+                .select("_id academicDetails.class")
+                .lean(),
+        ]);
+
+        // Calculate overall attendance from completed lectures only.
+        const attendanceLectureIds = completedLectureRecords.map(
+            (lecture) => lecture._id
+        );
+
+        const attendanceRecords =
+            attendanceLectureIds.length && students.length
+                ? await Attendance.find({
+                    lecture: { $in: attendanceLectureIds },
+                    student: { $in: students.map((student) => student._id) },
+                })
+                    .select("student lecture status verificationStatus")
+                    .lean()
+                : [];
+
+        const attendanceMap = new Map();
+
+        for (const record of attendanceRecords) {
+            attendanceMap.set(
+                `${record.student.toString()}_${record.lecture.toString()}`,
+                record
+            );
+        }
+
+        let applicableSessions = 0;
+        let attendedSessions = 0;
+
+        for (const student of students) {
+            const studentClass = String(
+                student.academicDetails?.class || ""
+            ).trim().toLowerCase();
+
+            const studentLectures = completedLectureRecords.filter(
+                (lecture) =>
+                    String(lecture.assignedClass || "")
+                        .trim()
+                        .toLowerCase() === studentClass
+            );
+
+            for (const lecture of studentLectures) {
+                applicableSessions++;
+
+                const key =
+                    `${student._id.toString()}_${lecture._id.toString()}`;
+
+                const record = attendanceMap.get(key);
+
+                if (
+                    record?.status === "present" ||
+                    (
+                        record?.status === "flagged" &&
+                        record?.verificationStatus === "approved"
+                    )
+                ) {
+                    attendedSessions++;
+                }
+            }
+        }
+
+        const overallAttendancePercentage =
+            applicableSessions > 0
+                ? Number(
+                    ((attendedSessions / applicableSessions) * 100).toFixed(2)
+                )
+                : 0;
+
+        return res.status(200).json({
+            success: true,
+            stats: {
+                totalStudents,
+
+                totalProfessors,
+                activeProfessors,
+
+                totalClassrooms,
+                activeClassrooms,
+
+                totalLectures,
+                todaysLectures,
+                completedLectures,
+
+                overallAttendancePercentage,
+            },
+        });
+    } catch (error) {
+        console.error("Admin dashboard stats error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to load Admin dashboard statistics.",
         });
     }
 };

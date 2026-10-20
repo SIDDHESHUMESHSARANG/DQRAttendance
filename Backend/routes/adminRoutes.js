@@ -9,6 +9,7 @@ import {
   addStudent,
   getStudents,
   updateStudent,
+  deleteStudent,
   bulkUploadStudents,
   resetStudentTrustedDevice,
   getFlaggedAttendance,
@@ -16,6 +17,7 @@ import {
   getAttendanceOverview,
   getStudentAttendanceHistory,
   getAttendanceByDate,
+  getAdminDashboardStats,
 } from "../controllers/adminController.js";
 
 import {
@@ -159,5 +161,17 @@ router.get(
     authMiddleware,
     authorizeRoles("admin"),
     getAttendanceByDate
+);
+router.delete(
+  "/students/:id",
+  authMiddleware,
+  authorizeRoles("admin"),
+  deleteStudent
+);
+router.get(
+    "/dashboard/stats",
+    authMiddleware,
+    authorizeRoles("admin"),
+    getAdminDashboardStats
 );
 export default router;

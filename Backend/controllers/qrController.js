@@ -51,8 +51,11 @@ export const generateLectureQR = async (req, res) => {
 
     const expiresAt = new Date(Date.now() + 15 * 1000);
 
-    // Purane QR tokens invalidate karo.
-    await QRToken.deleteMany({ lecture: lecture._id });
+    
+    await QRToken.deleteMany({
+      lecture: lecture._id,
+      expiresAt: { $lte: new Date() },
+    });
 
     await QRToken.create({
       lecture: lecture._id,

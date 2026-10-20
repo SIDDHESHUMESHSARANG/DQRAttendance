@@ -44,11 +44,11 @@ const findAssignedProfessor = async (subject, assignedClass) => {
 
     const matchingProfessors = professors.filter(
         (professor) =>
-            professor.subjects.some(
+            (professor.subjects || []).some(
                 (item) =>
                     item.toLowerCase() === subjectName.toLowerCase()
             ) &&
-            professor.assignedClasses.some(
+            (professor.assignedClasses || []).some(
                 (item) =>
                     item.toLowerCase() === className.toLowerCase()
             )
@@ -71,7 +71,7 @@ const findAssignedProfessor = async (subject, assignedClass) => {
     return { professor: matchingProfessors[0] };
 };
 
-// Helper: Find an active classroom
+// Helper: Find an active classroom by ID (legacy compatibility)
 const findActiveClassroom = async (classroomId) => {
     if (!isValidObjectId(classroomId)) {
         return null;
@@ -83,12 +83,160 @@ const findActiveClassroom = async (classroomId) => {
     });
 };
 
-// API 1: Create Lecture
+// Helper: Resolve classroom details.
+// A classroom name can be entered freely. A database record is optional.
+const resolveClassroom = async (classroomName, classroomId) => {
+    const name =
+        typeof classroomName === "string"
+            ? classroomName.trim()
+            : "";
+
+    if (name) {
+        let classroom = null;
+
+        if (isValidObjectId(classroomId)) {
+            classroom = await findActiveClassroom(classroomId);
+        }
+
+        return {
+            classroomName: name,
+            classroomId: classroom ? classroom._id : null,
+        };
+    }
+
+    // Backward compatibility for requests using an existing classroom ID
+    const classroom = await findActiveClassroom(classroomId);
+
+    if (classroom) {
+        return {
+            classroomName: classroom.classroomName,
+            classroomId: classroom._id,
+        };
+    }
+
+    return null;
+};
+
+// Helper: Check for overlapping lecture schedules
+const findLectureConflict = async ({
+    professorId,
+    assignedClass,
+    classroomName,
+    classroomId,
+    date,
+    startTime,
+    endTime,
+    excludeLectureId = null,
+}) => {
+    const dateStart = new Date(date);
+    dateStart.setUTCHours(0, 0, 0, 0);
+
+    const dateEnd = new Date(dateStart);
+    dateEnd.setUTCDate(dateEnd.getUTCDate() + 1);
+
+    // Find lectures on the same date with overlapping times.
+    // Example: 14:00-15:00 overlaps with 14:30-15:30.
+    // Example: 14:00-15:00 does not overlap with 15:00-16:00.
+    const query = {
+        date: {
+            $gte: dateStart,
+            $lt: dateEnd,
+        },
+        status: { $ne: "cancelled" },
+        startTime: { $lt: endTime },
+        endTime: { $gt: startTime },
+    };
+
+    // Exclude the current lecture when updating it.
+    if (excludeLectureId) {
+        query._id = { $ne: excludeLectureId };
+    }
+
+    const existingLectures = await Lecture.find(query);
+
+    const normalizedClass = assignedClass.trim().toLowerCase();
+    const normalizedRoom = classroomName.trim().toLowerCase();
+    const currentProfessorId = String(professorId);
+
+    for (const existing of existingLectures) {
+        const sameClass =
+            typeof existing.assignedClass === "string" &&
+            existing.assignedClass.trim().toLowerCase() ===
+                normalizedClass;
+
+        const existingRoomName =
+            typeof existing.classroomName === "string"
+                ? existing.classroomName.trim().toLowerCase()
+                : "";
+
+        const sameRoomName =
+            Boolean(normalizedRoom) &&
+            Boolean(existingRoomName) &&
+            existingRoomName === normalizedRoom;
+
+        const sameRoomId =
+            Boolean(classroomId) &&
+            Boolean(existing.classroom) &&
+            String(existing.classroom) === String(classroomId);
+
+        const sameProfessor =
+            existing.professor &&
+            String(existing.professor) === currentProfessorId;
+
+        const conflictDetails = {
+            subject: existing.subject,
+            assignedClass: existing.assignedClass,
+            classroomName: existing.classroomName,
+            date: existing.date,
+            startTime: existing.startTime,
+            endTime: existing.endTime,
+            status: existing.status,
+        };
+
+        // Same class cannot have overlapping lectures.
+        if (sameClass) {
+            return {
+                message:
+                    `This class already has a lecture scheduled from ` +
+                    `${existing.startTime} to ${existing.endTime}. ` +
+                    `Choose a different time.`,
+                conflict: conflictDetails,
+            };
+        }
+
+        // Same classroom cannot be booked for overlapping lectures.
+        if (sameRoomName || sameRoomId) {
+            return {
+                message:
+                    `This classroom is already booked from ` +
+                    `${existing.startTime} to ${existing.endTime}. ` +
+                    `Choose a different time or classroom.`,
+                conflict: conflictDetails,
+            };
+        }
+
+        // Same professor cannot teach overlapping lectures.
+        if (sameProfessor) {
+            return {
+                message:
+                    `This professor already has a lecture from ` +
+                    `${existing.startTime} to ${existing.endTime}. ` +
+                    `Choose a different time.`,
+                conflict: conflictDetails,
+            };
+        }
+    }
+
+    return null;
+};
+
+// API 1: Create Lecture (Admin)
 export const createLecture = async (req, res) => {
     try {
         const {
             subject,
             assignedClass,
+            classroomName,
             classroomId,
             date,
             startTime,
@@ -100,14 +248,16 @@ export const createLecture = async (req, res) => {
             !subject.trim() ||
             typeof assignedClass !== "string" ||
             !assignedClass.trim() ||
-            !isValidObjectId(classroomId) ||
+            typeof classroomName !== "string" ||
+            !classroomName.trim() ||
+            classroomName.trim().length > 150 ||
             !isValidDate(date) ||
             typeof startTime !== "string" ||
             typeof endTime !== "string"
         ) {
             return res.status(400).json({
                 message:
-                    "Subject, class, valid classroom ID, date (YYYY-MM-DD), start time and end time are required.",
+                    "Subject, class, classroom name, valid date, start time and end time are required.",
             });
         }
 
@@ -123,11 +273,16 @@ export const createLecture = async (req, res) => {
             });
         }
 
-        const classroom = await findActiveClassroom(classroomId);
+        // Only the classroom name is required.
+        // No matching Classroom database record is necessary.
+        const resolvedClassroom = await resolveClassroom(
+            classroomName,
+            classroomId
+        );
 
-        if (!classroom) {
+        if (!resolvedClassroom) {
             return res.status(400).json({
-                message: "Classroom not found or inactive.",
+                message: "Enter a valid classroom name.",
             });
         }
 
@@ -144,19 +299,42 @@ export const createLecture = async (req, res) => {
 
         const professor = result.professor;
 
+        const matchedSubject = professor.subjects.find(
+            (item) =>
+                item.toLowerCase() === subject.trim().toLowerCase()
+        );
+
+        const matchedClass = professor.assignedClasses.find(
+            (item) =>
+                item.toLowerCase() ===
+                assignedClass.trim().toLowerCase()
+        );
+
+        // NEW: Check schedule conflicts before creating the lecture.
+        const conflict = await findLectureConflict({
+            professorId: professor._id,
+            assignedClass: matchedClass,
+            classroomName: resolvedClassroom.classroomName,
+            classroomId: resolvedClassroom.classroomId,
+            date: new Date(`${date}T00:00:00.000Z`),
+            startTime,
+            endTime,
+        });
+
+        if (conflict) {
+            return res.status(409).json({
+                message: conflict.message,
+                conflict: conflict.conflict,
+            });
+        }
+
         const lecture = await Lecture.create({
             professor: professor._id,
             professorName: professor.name,
-            subject: professor.subjects.find(
-                (item) =>
-                    item.toLowerCase() === subject.trim().toLowerCase()
-            ),
-            assignedClass: professor.assignedClasses.find(
-                (item) =>
-                    item.toLowerCase() ===
-                    assignedClass.trim().toLowerCase()
-            ),
-            classroom: classroom._id,
+            subject: matchedSubject,
+            assignedClass: matchedClass,
+            classroom: resolvedClassroom.classroomId,
+            classroomName: resolvedClassroom.classroomName,
             date: new Date(`${date}T00:00:00.000Z`),
             startTime,
             endTime,
@@ -167,7 +345,7 @@ export const createLecture = async (req, res) => {
             lecture,
         });
     } catch (error) {
-        console.error("Create lecture error:", error.message);
+        console.error("Create lecture error:", error);
 
         if (error.name === "ValidationError") {
             return res.status(400).json({
@@ -204,6 +382,8 @@ export const getLectures = async (req, res) => {
             };
         }
 
+        // Professors only receive their own assigned lectures.
+        // Admins can view all lectures allowed by the route middleware.
         if (req.user.role === "professor") {
             filter.professor = req.user.id;
         }
@@ -220,7 +400,7 @@ export const getLectures = async (req, res) => {
             lectures,
         });
     } catch (error) {
-        console.error("Get lectures error:", error.message);
+        console.error("Get lectures error:", error);
 
         return res.status(500).json({
             message: "Server error while fetching lectures.",
@@ -228,7 +408,7 @@ export const getLectures = async (req, res) => {
     }
 };
 
-// API 3: Update Lecture (Admin route)
+// API 3: Update Lecture (Admin)
 export const updateLecture = async (req, res) => {
     try {
         const { id } = req.params;
@@ -256,6 +436,7 @@ export const updateLecture = async (req, res) => {
         const {
             subject,
             assignedClass,
+            classroomName,
             classroomId,
             date,
             startTime,
@@ -269,11 +450,6 @@ export const updateLecture = async (req, res) => {
             assignedClass === undefined
                 ? lecture.assignedClass
                 : assignedClass;
-
-        const newClassroomId =
-            classroomId === undefined
-                ? lecture.classroom?.toString()
-                : classroomId;
 
         const newDate =
             date === undefined
@@ -291,12 +467,10 @@ export const updateLecture = async (req, res) => {
             !newSubject.trim() ||
             typeof newClass !== "string" ||
             !newClass.trim() ||
-            !isValidObjectId(newClassroomId) ||
             !isValidDate(newDate)
         ) {
             return res.status(400).json({
-                message:
-                    "Subject, class, valid classroom ID and date are required.",
+                message: "Subject, class and valid date are required.",
             });
         }
 
@@ -314,11 +488,24 @@ export const updateLecture = async (req, res) => {
             });
         }
 
-        const classroom = await findActiveClassroom(newClassroomId);
+        const requestedClassroomName =
+            classroomName === undefined
+                ? lecture.classroomName
+                : classroomName;
 
-        if (!classroom) {
+        const requestedClassroomId =
+            classroomId === undefined
+                ? lecture.classroom?.toString()
+                : classroomId;
+
+        const resolvedClassroom = await resolveClassroom(
+            requestedClassroomName,
+            requestedClassroomId
+        );
+
+        if (!resolvedClassroom) {
             return res.status(400).json({
-                message: "Classroom not found or inactive.",
+                message: "Enter a classroom name.",
             });
         }
 
@@ -335,17 +522,42 @@ export const updateLecture = async (req, res) => {
 
         const professor = result.professor;
 
-        lecture.professor = professor._id;
-        lecture.professorName = professor.name;
-        lecture.subject = professor.subjects.find(
+        const matchedSubject = professor.subjects.find(
             (item) =>
                 item.toLowerCase() === newSubject.trim().toLowerCase()
         );
-        lecture.assignedClass = professor.assignedClasses.find(
+
+        const matchedClass = professor.assignedClasses.find(
             (item) =>
                 item.toLowerCase() === newClass.trim().toLowerCase()
         );
-        lecture.classroom = classroom._id;
+
+        // NEW: Check schedule conflicts before updating the lecture.
+        // Exclude this lecture from the conflict search.
+        const conflict = await findLectureConflict({
+            professorId: professor._id,
+            assignedClass: matchedClass,
+            classroomName: resolvedClassroom.classroomName,
+            classroomId: resolvedClassroom.classroomId,
+            date: new Date(`${newDate}T00:00:00.000Z`),
+            startTime: newStartTime,
+            endTime: newEndTime,
+            excludeLectureId: lecture._id,
+        });
+
+        if (conflict) {
+            return res.status(409).json({
+                message: conflict.message,
+                conflict: conflict.conflict,
+            });
+        }
+
+        lecture.professor = professor._id;
+        lecture.professorName = professor.name;
+        lecture.subject = matchedSubject;
+        lecture.assignedClass = matchedClass;
+        lecture.classroom = resolvedClassroom.classroomId;
+        lecture.classroomName = resolvedClassroom.classroomName;
         lecture.date = new Date(`${newDate}T00:00:00.000Z`);
         lecture.startTime = newStartTime;
         lecture.endTime = newEndTime;
@@ -357,7 +569,7 @@ export const updateLecture = async (req, res) => {
             lecture,
         });
     } catch (error) {
-        console.error("Update lecture error:", error.message);
+        console.error("Update lecture error:", error);
 
         if (error.name === "ValidationError") {
             return res.status(400).json({
@@ -410,7 +622,7 @@ export const cancelLecture = async (req, res) => {
             lecture,
         });
     } catch (error) {
-        console.error("Cancel lecture error:", error.message);
+        console.error("Cancel lecture error:", error);
 
         return res.status(500).json({
             message: "Server error while cancelling lecture.",
@@ -422,10 +634,28 @@ export const cancelLecture = async (req, res) => {
 export const startLecture = async (req, res) => {
     try {
         const { id } = req.params;
+        const { latitude, longitude } = req.body || {};
 
         if (!isValidObjectId(id)) {
             return res.status(400).json({
+                success: false,
                 message: "Invalid lecture ID.",
+            });
+        }
+
+        if (
+            typeof latitude !== "number" ||
+            typeof longitude !== "number" ||
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude) ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid Professor location is required to start attendance.",
             });
         }
 
@@ -433,48 +663,70 @@ export const startLecture = async (req, res) => {
 
         if (!lecture) {
             return res.status(404).json({
+                success: false,
                 message: "Lecture not found.",
             });
         }
 
         if (lecture.professor.toString() !== req.user.id) {
             return res.status(403).json({
+                success: false,
                 message: "You can only start your own lectures.",
             });
         }
 
         if (lecture.status !== "scheduled") {
             return res.status(400).json({
+                success: false,
                 message: "Only scheduled lectures can be started.",
             });
         }
 
-        const classroom = await findActiveClassroom(
-            lecture.classroom?.toString()
-        );
+        // Free-text classroom names do not require a Classroom record.
+        // Legacy lectures without a saved name still require an active room.
+        if (!lecture.classroomName) {
+            const classroom = await findActiveClassroom(
+                lecture.classroom?.toString()
+            );
 
-        if (!classroom) {
-            return res.status(400).json({
-                message: "The lecture's classroom is missing or inactive.",
-            });
+            if (!classroom) {
+                return res.status(400).json({
+                    success: false,
+                    message: "The lecture needs a classroom name or an active classroom record.",
+                });
+            }
+
+            lecture.classroomName = classroom.classroomName;
         }
 
+        lecture.professorLocation = {
+            latitude,
+            longitude,
+            capturedAt: new Date(),
+        };
+
+        // Preserve the 30-metre attendance radius.
+        lecture.attendanceRadiusMeters = 30;
         lecture.status = "ongoing";
+
         await lecture.save();
 
         return res.status(200).json({
+            success: true,
             message: "Lecture started successfully.",
             lecture,
-            classroomLocation: {
-                latitude: classroom.latitude,
-                longitude: classroom.longitude,
-                radiusMeters: classroom.radiusMeters,
+            professorLocation: {
+                latitude: lecture.professorLocation.latitude,
+                longitude: lecture.professorLocation.longitude,
+                capturedAt: lecture.professorLocation.capturedAt,
             },
+            attendanceRadiusMeters: lecture.attendanceRadiusMeters,
         });
     } catch (error) {
-        console.error("Start lecture error:", error.message);
+        console.error("Start lecture error:", error);
 
         return res.status(500).json({
+            success: false,
             message: "Server error while starting lecture.",
         });
     }
@@ -519,7 +771,7 @@ export const stopLecture = async (req, res) => {
             lecture,
         });
     } catch (error) {
-        console.error("Stop lecture error:", error.message);
+        console.error("Stop lecture error:", error);
 
         return res.status(500).json({
             message: "Server error while stopping lecture.",

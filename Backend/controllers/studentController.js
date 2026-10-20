@@ -51,8 +51,8 @@ const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos(toRadians(lat2)) *
+    Math.sin(dLon / 2) ** 2;
 
   const safeA = Math.min(1, Math.max(0, a));
 
@@ -444,11 +444,11 @@ export const getStudentDashboard = async (req, res) => {
     const attendancePercentage =
       totalSessionsConducted > 0
         ? Number(
-            (
-              (totalSessionsAttended / totalSessionsConducted) *
-              100
-            ).toFixed(2)
-          )
+          (
+            (totalSessionsAttended / totalSessionsConducted) *
+            100
+          ).toFixed(2)
+        )
         : 0;
 
     return res.status(200).json({
@@ -730,34 +730,49 @@ export const processQrAttendance = async (req, res) => {
     }
 
     // Always use the classroom coordinates saved in the database.
+    // Keep the classroom association, but verify location against
+    // the Professor's location captured when the lecture started.
     const classroom = await Classroom.findById(lecture.classroom);
 
-    if (
-      !classroom ||
-      !classroom.isActive ||
-      !Number.isFinite(classroom.latitude) ||
-      !Number.isFinite(classroom.longitude)
-    ) {
+    if (!classroom || !classroom.isActive) {
       return res.status(400).json({
         success: false,
-        message: "Classroom is missing, inactive, or has invalid coordinates.",
+        message: "Classroom is missing or inactive.",
       });
     }
 
-    const radiusMeters = classroom.radiusMeters ?? 30;
+    const professorLatitude = lecture.professorLocation?.latitude;
+    const professorLongitude = lecture.professorLocation?.longitude;
+
+    if (
+      !Number.isFinite(professorLatitude) ||
+      !Number.isFinite(professorLongitude) ||
+      professorLatitude < -90 ||
+      professorLatitude > 90 ||
+      professorLongitude < -180 ||
+      professorLongitude > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Professor location was not captured. Attendance cannot be verified.",
+      });
+    }
+
+    const radiusMeters = lecture.attendanceRadiusMeters ?? 30;
 
     if (!Number.isFinite(radiusMeters) || radiusMeters <= 0) {
       return res.status(500).json({
         success: false,
-        message: "Classroom attendance radius is incorrectly configured.",
+        message: "Lecture attendance radius is incorrectly configured.",
       });
     }
 
     const distanceMeters = calculateDistanceMeters(
       latitude,
       longitude,
-      classroom.latitude,
-      classroom.longitude
+      professorLatitude,
+      professorLongitude
     );
 
     const isWithinRadius = distanceMeters <= radiusMeters;
@@ -792,8 +807,8 @@ export const processQrAttendance = async (req, res) => {
       verificationNote: isWithinRadius
         ? ""
         : `Outside classroom radius. Distance: ${Math.round(
-            distanceMeters
-          )}m; allowed radius: ${radiusMeters}m. Admin verification required.`,
+          distanceMeters
+        )}m; allowed radius: ${radiusMeters}m. Admin verification required.`,
     });
 
     // Try to alert Admin, but do not undo a saved attendance record if
@@ -807,14 +822,12 @@ export const processQrAttendance = async (req, res) => {
         try {
           await sendWhatsAppMessage(
             adminWhatsappNumber,
-            `Out-of-range attendance scan: ${
-              student.academicDetails?.fullName || "Student"
-            } (roll ${
-              student.academicDetails?.rollNo || "N/A"
+            `Out-of-range attendance scan: ${student.academicDetails?.fullName || "Student"
+            } (roll ${student.academicDetails?.rollNo || "N/A"
             }, ${student.email}) is ${Math.round(
               distanceMeters
             )}m from classroom ${classroom.name || classroom._id}. ` +
-              `Allowed radius: ${radiusMeters}m. Attendance flagged for review.`
+            `Allowed radius: ${radiusMeters}m. Attendance flagged for review.`
           );
 
           adminAlertSent = true;
