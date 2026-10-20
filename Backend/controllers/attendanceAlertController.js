@@ -2,7 +2,10 @@ import mongoose from "mongoose";
 import Student from "../models/StudentModel.js";
 import Attendance from "../models/Attendance.js";
 import Lecture from "../models/Lecture.js";
-import { sendWhatsAppMessage } from "../utils/whatsappService.js";
+import {
+  sendWhatsAppMessage,
+  sendWhatsAppTemplate,
+} from "../utils/whatsappService.js";
 
 const LOW_ATTENDANCE_THRESHOLD = 75;
 
@@ -138,12 +141,15 @@ export const sendLowAttendanceAlert = async (req, res) => {
     }
 
     const studentName = student.academicDetails.fullName;
-
-    const delivery = await sendWhatsAppMessage(
-      student.whatsappNumber,
+    const messageBody =
       `Hello ${studentName}, your current attendance is ${attendancePercentage}%. ` +
-        `Please contact your professor and attend upcoming classes to improve it.`,
-    );
+      "Please contact your professor and attend upcoming classes to improve it.";
+    const delivery = process.env.TWILIO_WHATSAPP_MODE === "sandbox"
+      ? await sendWhatsAppMessage(student.whatsappNumber, messageBody)
+      : await sendWhatsAppTemplate(student.whatsappNumber, {
+        1: studentName,
+        2: String(attendancePercentage),
+      });
 
     return res.status(200).json({
       message: "Low-attendance WhatsApp alert sent",
