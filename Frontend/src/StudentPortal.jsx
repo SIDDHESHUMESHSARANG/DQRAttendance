@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 import { studentPortalService } from "./services/studentPortalService";
 import "./StudentPortal.css";
 
@@ -72,17 +73,49 @@ function StudentPortal({ onLogout }) {
     video.play().catch(() => setCameraError("Camera preview could not start. Check browser permissions."));
     let timer;
     let stopped = false;
-    const Detector = window.BarcodeDetector;
-    if (!Detector) {
+    let detector = null;
+
+    if (window.BarcodeDetector) {
+      try {
+        detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+      } catch {
+        detector = null;
+      }
+    }
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (!context) {
       return undefined;
     }
-    const detector = new Detector({ formats: ["qr_code"] });
+
     const detect = async () => {
       if (stopped) return;
+
       try {
-        const codes = await detector.detect(video);
-        if (codes[0]?.rawValue) {
-          setQrInput(codes[0].rawValue);
+        let rawValue;
+
+        if (detector) {
+          try {
+            const codes = await detector.detect(video);
+            rawValue = codes[0]?.rawValue;
+          } catch {
+            detector = null;
+          }
+        }
+
+        if (!rawValue && !detector && video.videoWidth && video.videoHeight) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const image = context.getImageData(0, 0, canvas.width, canvas.height);
+          rawValue = jsQR(image.data, image.width, image.height, {
+            inversionAttempts: "dontInvert",
+          })?.data;
+        }
+
+        if (rawValue) {
+          setQrInput(rawValue);
           setNotice("QR code found. Select “Mark attendance” to continue.");
           setScanning(false);
           streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -108,12 +141,12 @@ function StudentPortal({ onLogout }) {
   const startCamera = async () => {
     setCameraError("");
     setNotice("");
-    if (!window.BarcodeDetector) {
-      setCameraError("Automatic QR scanning is not supported by this browser. Paste the QR contents below instead.");
-      return;
-    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Camera access is unavailable. Use a secure connection or paste the QR contents.");
+      return;
+    }
+    if (!document.createElement("canvas").getContext("2d")) {
+      setCameraError("QR scanning is unavailable in this browser.");
       return;
     }
     try {
