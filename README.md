@@ -158,7 +158,7 @@ the backend REST API using `VITE_API_URL` (default:
 - MongoDB and Mongoose
 - JWT-based authentication and role authorization
 - `bcrypt` / `bcryptjs` for password hashing
-- Nodemailer for registration OTP email
+- Brevo HTTPS API for registration OTP email
 - Twilio for WhatsApp notifications
 - Multer and SheetJS (`xlsx`) for CSV/Excel imports
 
@@ -228,10 +228,7 @@ purpose only; it intentionally contains no live values.
 | `MONGO_URI` | MongoDB connection URI. Required for backend startup. |
 | `JWT_SECRET` | Secret used to sign and verify authentication tokens. |
 | `OTP_SECRET` | Secret used to hash/verify email registration OTPs. |
-| `SMTP_HOST` | SMTP host; defaults in code to `smtp-relay.brevo.com`. |
-| `SMTP_PORT` | SMTP port; defaults in code to `587`. |
-| `SMTP_USER` | SMTP account username. |
-| `SMTP_PASS` | SMTP account password or API key. |
+| `BREVO_API_KEY` | API key for Brevo transactional email (HTTPS). |
 | `MAIL_FROM` | Sender address used for OTP emails. |
 | `ADMIN_WHATSAPP_TO` | Optional admin recipient for out-of-range scan alerts, in E.164 format. |
 | `TWILIO_ACCOUNT_SID` | Twilio account identifier. |
@@ -244,7 +241,7 @@ The frontend uses `VITE_API_URL` to configure the API base path. Vite exposes
 variables prefixed with `VITE_` to frontend code, so never put secrets in
 frontend environment variables.
 
-The backend sends registration OTPs by email. WhatsApp low-attendance
+The backend sends registration OTPs through the Brevo email API. WhatsApp low-attendance
 reminders require student phone numbers in E.164 format. The sandbox and
 production template setup, including template content, is documented in
 [`Backend/README.md`](./Backend/README.md).

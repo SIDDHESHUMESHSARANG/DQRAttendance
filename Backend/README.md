@@ -1,5 +1,22 @@
 # Backend setup
 
+## Transactional email
+
+Registration and activation OTPs are sent through the Brevo email API over
+HTTPS, avoiding outbound SMTP port restrictions on hosting providers. In
+Brevo, create an API key and verify the sender address you will use. Configure
+these values in the backend environment (Render Environment settings for
+deployment, or `Backend/.env` for local development):
+
+```env
+BREVO_API_KEY=your_brevo_api_key
+MAIL_FROM=your_verified_sender@example.com
+```
+
+The sender address must be verified with Brevo. Keep the API key private and
+never put it in frontend environment variables. `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, and `SMTP_PASS` are no longer used for OTP delivery.
+
 ## Deploying the API to Render
 
 Configure the Render web service with:
