@@ -6,7 +6,7 @@ import StudentManagement from "./components/StudentManagement";
 import ProfessorManagement from "./components/ProfessorManagement";
 import ClassroomManagement from "./components/ClassroomManagement";
 import AdminAttendance from "./components/AdminAttendance";
-import AdminOverview from "./components/AdminOverview";
+import ThemeToggle from "./components/ThemeToggle";
 import Professor from "./Professor.jsx";
 import StudentPortal from "./StudentPortal.jsx";
 import { studentPortalService } from "./services/studentPortalService";
@@ -116,6 +116,29 @@ function ToastContainer({ toasts, onDismiss }) {
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("dqr-theme") === "dark" ? "dark" : "light";
+    } catch (error) {
+      console.warn("Unable to read the saved color theme.", error);
+      return "light";
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+
+    try {
+      localStorage.setItem("dqr-theme", theme);
+    } catch (error) {
+      console.warn("Unable to save the selected color theme.", error);
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
+
   // Toast state
   const [toasts, setToasts] = useState([]);
 
@@ -684,7 +707,11 @@ function App() {
           toasts={toasts}
           onDismiss={dismissToast}
         />
-        <Professor onLogout={handleProfessorLogout} />
+        <Professor
+          onLogout={handleProfessorLogout}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
       </>
     );
   }
@@ -697,7 +724,11 @@ function App() {
           toasts={toasts}
           onDismiss={dismissToast}
         />
-        <StudentPortal onLogout={handleStudentLogout} />
+        <StudentPortal
+          onLogout={handleStudentLogout}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
       </>
     );
   }
@@ -742,9 +773,11 @@ function App() {
                 openSection("overview");
               }}
             >
-              <span className="dashboard-brand-mark">Q</span>
+              <span className="dashboard-brand-mark">
+                <img src="/favicon.svg" alt="" height="20" />
+              </span>
               <span className="dashboard-brand-name">
-                QR Attendance
+                DQRSmartAttendance
                 <small>ADMIN WORKSPACE</small>
               </span>
             </a>
@@ -876,6 +909,7 @@ function App() {
               </div>
 
               <div className="dashboard-topbar-right">
+                <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 <div className="topbar-date">
                   <span className="status-dot" />
                   Signed in
@@ -924,7 +958,7 @@ function App() {
                       className="greeting-mark"
                       aria-hidden="true"
                     >
-                      <span>Q</span>
+                      <img src="/favicon.svg" alt="" height="20" />
                     </div>
                   </section>
 
@@ -1111,7 +1145,7 @@ function App() {
                   </section>
 
                   <footer className="dashboard-footer">
-                    <span>QR Attendance System</span>
+                    <span>DQRSmartAttendance</span>
                     <span>Administrator workspace</span>
                   </footer>
                 </>
@@ -1166,26 +1200,69 @@ function App() {
               backToRoles();
             }}
           >
-            <span className="brand-mark">QR</span>
-            <span>QR Attendance System</span>
+            <span className="brand-mark">
+              <img src="/favicon.svg" alt="" height="20" />
+            </span>
+            <span>  DQRSmartAttendance</span>
           </a>
 
-          <span className="header-caption">
-            ATTENDANCE MANAGEMENT
-          </span>
+          <div className="auth-header-actions">
+            <span className="header-caption">ATTENDANCE MANAGEMENT</span>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          </div>
         </header>
 
         {page === "roles" ? (
           <section className="role-selection">
-            <div className="role-heading">
-              <span className="mobile-brand-mark">QR</span>
-              <p className="eyebrow">WELCOME</p>
-              <h1>Select your role</h1>
-              <p className="form-description">
-                Choose how you want to access the QR Attendance System.
-              </p>
+            <div className="landing-hero">
+              <div className="landing-copy">
+                <p className="eyebrow">SMARTER ATTENDANCE, BUILT FOR CAMPUS</p>
+                <h1>
+                  Every class.
+                  <br />
+                  <span>Counted.</span>
+                </h1>
+                <p className="landing-description">
+                  A simpler way to run lectures, verify check-ins, and keep
+                  your campus in sync.
+                </p>
+                <div className="landing-proof">
+                  <span><i /> Live QR check-in</span>
+                  <span><i /> One connected workspace</span>
+                </div>
+              </div>
+              <div className="landing-visual" aria-hidden="true">
+                <div className="landing-visual-orbit orbit-one" />
+                <div className="landing-visual-orbit orbit-two" />
+                <div className="landing-qr-card">
+                  <div className="landing-qr">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <div>
+                    <strong>Ready when class is</strong>
+                    <small>Secure, real-time check-in</small>
+                  </div>
+                  <span className="landing-check">✓</span>
+                </div>
+                <div className="landing-float-chip"><span>●</span> Session active</div>
+              </div>
             </div>
 
+            <div className="role-heading">
+              <p className="eyebrow">YOUR WORKSPACE</p>
+              <h2>Choose your way in</h2>
+              <p className="form-description">
+                Sign in as an administrator, professor, or student.
+              </p>
+            </div>
             <div className="role-grid">
               {Object.entries(roleDetails).map(([key, item]) => (
                 <button
@@ -1218,7 +1295,7 @@ function App() {
             <aside className="intro-panel">
               <div className="intro-content">
                 <span className="intro-tag">
-                  QR ATTENDANCE SYSTEM
+                  DQR SMART ATTENDANCE
                 </span>
 
                 <h1>
@@ -1249,7 +1326,7 @@ function App() {
               </div>
 
               <p className="intro-footer">
-                QR ATTENDANCE SYSTEM
+                DQR SMART ATTENDANCE
               </p>
             </aside>
 
@@ -1638,7 +1715,7 @@ function App() {
 
         <footer className="page-footer">
           <span>
-            © {new Date().getFullYear()} QR Attendance System
+            © {new Date().getFullYear()} DQRSmartAttendance
           </span>
           <span>SECURE ATTENDANCE MANAGEMENT</span>
         </footer>

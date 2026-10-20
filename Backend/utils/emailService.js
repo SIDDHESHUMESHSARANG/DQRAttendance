@@ -20,7 +20,7 @@ export const sendAdminOTP = async (email, otp) => {
         const result = await transporter.sendMail({
             from: process.env.MAIL_FROM,
             to: email,
-            subject: "Admin Registration OTP - DQRAttendance",
+            subject: "Admin Registration OTP - DQRSmartAttendance",
             text: `Your Admin registration OTP is ${otp}. It is valid for 3 minutes. Do not share this OTP with anyone.`,
         });
 
@@ -46,7 +46,7 @@ export const sendProfessorRegistrationOTP = async (email, otp) => {
         const result = await transporter.sendMail({
             from: process.env.MAIL_FROM,
             to: email,
-            subject: "Professor Registration OTP - DQRAttendance",
+            subject: "Professor Registration OTP - DQRSmartAttendance",
             text: `Your Professor registration OTP is ${otp}. It is valid for 3 minutes. Do not share this OTP with anyone.`,
         });
 
@@ -72,7 +72,7 @@ export const sendStudentRegistrationOTP = async (email, otp) => {
         const result = await transporter.sendMail({
             from: process.env.MAIL_FROM,
             to: email,
-            subject: "Student Account Activation OTP - DQRAttendance",
+            subject: "Student Account Activation OTP - DQRSmartAttendance",
             text: `Your Student account activation OTP is ${otp}. It is valid for 3 minutes. Do not share this OTP with anyone.`,
         });
 

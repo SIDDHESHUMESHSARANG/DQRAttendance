@@ -24,13 +24,12 @@
     box-sizing: border-box;
 }
 
-<<<<<<< HEAD
 .cm-page button,
 .cm-page input,
 .cm-page select {
     font: inherit;
 }
-=======
+
 .cm-classroom-form {
     padding: 16px;
     margin: 16px 0;
@@ -98,7 +97,6 @@
 }
 
 /* Page Header */
->>>>>>> second/main
 
 .cm-page-header {
     display: flex;

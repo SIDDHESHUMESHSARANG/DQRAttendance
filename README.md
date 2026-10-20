@@ -1,6 +1,6 @@
-# DQRAttendance
+# DQRSmartAttendance
 
-DQRAttendance is a web-based attendance management system for educational
+DQRSmartAttendance is a web-based attendance management system for educational
 institutions. Administrators manage people, classrooms, lectures, and reports;
 professors run attendance sessions; and students check in using a short-lived
 QR code and location verification.
@@ -29,7 +29,7 @@ repository as the source of truth when details here and implementation differ.
 
 | Attribute | Description |
 | --- | --- |
-| Project name | DQRAttendance |
+| Project name | DQRSmartAttendance |
 | Project type | Full-stack web application |
 | Main purpose | Manage class attendance and provide QR-based student check-in |
 | Frontend | React single-page application built with Vite |
@@ -114,7 +114,7 @@ lecture start; it does not calculate distance from the classroom coordinates.
 ## Architecture and repository layout
 
 ```text
-DQRAttendance/
+DQRSmartAttendance/
 ├── Backend/
 │   ├── config/                 MongoDB connection
 │   ├── controllers/            API behavior and business logic

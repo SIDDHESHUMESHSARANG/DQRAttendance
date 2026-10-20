@@ -3,6 +3,7 @@
 .student-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
 .student-brand { display: flex; align-items: center; gap: 11px; color: inherit; text-decoration: none; }
 .student-brand-mark { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 14px; color: #fff; background: linear-gradient(140deg,#087f8c,#16a878); font-weight: 900; font-size: 20px; box-shadow: 0 8px 18px #087f8c27; }
+.student-brand-mark img { display: block; width: auto; height: 20px; max-width: 28px; object-fit: contain; }
 .student-brand strong,.student-brand small { display: block; }
 .student-brand strong { font-size: 14px; }
 .student-brand small { margin-top: 4px; color: #8894a5; font-size: 9px; font-weight: 850; letter-spacing: 1.25px; }
@@ -62,3 +63,79 @@
 .student-footer span { color: #adb6c2; }
 @media (max-width: 760px) { .student-content-grid { grid-template-columns: 1fr; } .student-stat-grid { grid-template-columns: 1fr 1fr; } .student-rate-card { grid-column: span 2; } }
 @media (max-width: 480px) { .student-portal { padding: 17px 13px; } .student-hero { min-height: 164px; padding: 22px; } .student-hero-art { width: 76px; height: 76px; margin-right: 0; } .student-hero-art span { width: 42px; height: 42px; } .student-stat-card { min-height: 125px; padding: 14px; } .student-footer { gap: 10px; } }
+
+:root[data-theme="dark"] .student-portal {
+  background: #0b1220;
+  color: #e7edf6;
+}
+
+:root[data-theme="dark"] .student-stat-card,
+:root[data-theme="dark"] .student-panel {
+  border-color: #293a4e;
+  background: #121d2d;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="dark"] .student-stat-card > strong,
+:root[data-theme="dark"] .student-panel-title h2,
+:root[data-theme="dark"] .student-profile-name,
+:root[data-theme="dark"] .student-detail-list strong {
+  color: #e7edf6;
+}
+
+:root[data-theme="dark"] .student-stat-card > span,
+:root[data-theme="dark"] .student-stat-card > small,
+:root[data-theme="dark"] .student-panel-title p,
+:root[data-theme="dark"] .student-detail-list span,
+:root[data-theme="dark"] .student-scan-description,
+:root[data-theme="dark"] .student-scan-footnote,
+:root[data-theme="dark"] .student-footer {
+  color: #9aadc2;
+}
+
+:root[data-theme="dark"] .student-detail-list,
+:root[data-theme="dark"] .student-detail-list div {
+  border-color: #293a4e;
+}
+
+:root[data-theme="dark"] .student-logout {
+  border-color: #34465c;
+  background: #172538;
+  color: #d5e2ef;
+}
+
+:root[data-theme="dark"] .student-profile-avatar,
+:root[data-theme="dark"] .student-scan-icon {
+  background: #1d3b40;
+  color: #84dcc5;
+}
+
+:root[data-theme="dark"] .student-device-note {
+  background: #16322e;
+  color: #afd7ca;
+}
+
+:root[data-theme="dark"] .student-qr-form label {
+  color: #b5c4d5;
+}
+
+:root[data-theme="dark"] .student-qr-form textarea {
+  border-color: #34465c;
+  background: #0d1726;
+  color: #e7edf6;
+}
+
+:root[data-theme="dark"] .student-camera-message {
+  background: #3b2e18;
+  color: #f1d39a;
+}
+
+:root[data-theme="dark"] .student-footer span {
+  color: #8092a8;
+}
+
+@media (max-width: 480px) {
+  .student-header-actions .theme-toggle span {
+    display: none;
+  }
+}

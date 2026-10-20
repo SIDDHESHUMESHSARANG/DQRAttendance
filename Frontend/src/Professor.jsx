@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { API_BASE_URL } from "./services/apiConfig";
+import ThemeToggle from "./components/ThemeToggle";
 
 const API_URL = API_BASE_URL;
 
@@ -55,7 +56,7 @@ function getStatusClass(status) {
   return `status status-${status || "scheduled"}`;
 }
 
-function Professor({ onLogout }) {
+function Professor({ onLogout, theme, onToggleTheme }) {
   const [professor] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("professorData") || "{}");
@@ -699,16 +700,21 @@ function Professor({ onLogout }) {
       <div className="prof-container">
         <header className="prof-topbar">
           <div className="prof-brand">
-            <div className="prof-logo">A</div>
+            <div className="prof-logo">
+              <img src="/favicon.svg" alt="" height="20" />
+            </div>
             <div>
               <h1>Professor Dashboard</h1>
-              <p className="prof-subtitle">DQRAttendance · Attendance workspace</p>
+              <p className="prof-subtitle">DQRSmartAttendance · Attendance workspace</p>
             </div>
           </div>
 
-          <button className="prof-button prof-logout" onClick={logout}>
-            ↪ Logout
-          </button>
+          <div className="prof-header-actions">
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            <button className="prof-button prof-logout" onClick={logout}>
+              ↪ Logout
+            </button>
+          </div>
         </header>
 
         <section className="prof-welcome">
@@ -941,7 +947,7 @@ function Professor({ onLogout }) {
         )}
 
         <footer className="prof-footer">
-          DQRAttendance · Professor Portal
+          DQRSmartAttendance · Professor Portal
         </footer>
       </div>
     </main>

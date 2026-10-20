@@ -1,6 +1,6 @@
-# DQRAttendance
+# DQRSmartAttendance
 
-React and Vite frontend for DQRAttendance, a QR-based attendance system.
+React and Vite frontend for DQRSmartAttendance, a QR-based attendance system.
 
 ## Run locally
 

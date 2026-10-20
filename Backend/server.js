@@ -45,7 +45,7 @@ app.use("/api/classrooms", classroomRoutes);
 
 // Health check
 app.get("/", (req, res) => {
-  res.send("DQRAttendance Backend Running");
+  res.send("DQRSmartAttendance Backend Running");
 });
 
 const PORT = process.env.PORT || 3000;

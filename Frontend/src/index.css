@@ -2,13 +2,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-main: #f8fafc;        /* Off-White Background */
-  --bg-card: #ffffff;        /* Pure White Cards */
-  --primary: #1e1b4b;        /* Deep Navy Indigo (Theme Primary) */
-  --primary-hover: #312e81;  /* Darker Navy for Hover States */
-  --text-dark: #1e1b4b;      /* Dark Text */
-  --text-muted: #64748b;     /* Subtitle Text */
-  --border-color: #e2e8f0;   /* Light Gray Border */
+  color-scheme: light;
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --primary: #1e1b4b;
+  --primary-hover: #312e81;
+  --text-dark: #1e1b4b;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-main: #0b1220;
+  --bg-card: #121d2d;
+  --primary: #a9c7f2;
+  --primary-hover: #c3d9f8;
+  --text-dark: #e7edf6;
+  --text-muted: #a0aec0;
+  --border-color: #26374b;
 }
 
 * {
@@ -21,6 +33,7 @@
 body {
   background-color: var(--bg-main);
   color: var(--text-dark);
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Page Layout Container */

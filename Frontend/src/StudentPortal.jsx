@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 import { studentPortalService } from "./services/studentPortalService";
+import ThemeToggle from "./components/ThemeToggle";
 import "./StudentPortal.css";
 
 function parseQr(value) {
@@ -39,7 +40,7 @@ function getLocation() {
   });
 }
 
-function StudentPortal({ onLogout }) {
+function StudentPortal({ onLogout, theme, onToggleTheme }) {
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -214,10 +215,15 @@ function StudentPortal({ onLogout }) {
       <div className="student-portal-inner">
         <header className="student-topbar">
           <a href="#student-home" className="student-brand" onClick={(event) => event.preventDefault()}>
-            <span className="student-brand-mark">Q</span>
-            <span><strong>DQRAttendance</strong><small>STUDENT PORTAL</small></span>
+            <span className="student-brand-mark">
+              <img src="/favicon.svg" alt="" height="20" />
+            </span>
+            <span><strong>DQRSmartAttendance</strong><small>STUDENT PORTAL</small></span>
           </a>
-          <button type="button" className="student-logout" onClick={logout}>Sign out <span aria-hidden="true">↗</span></button>
+          <div className="student-header-actions">
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            <button type="button" className="student-logout" onClick={logout}>Sign out <span aria-hidden="true">↗</span></button>
+          </div>
         </header>
 
         <section className="student-hero">
@@ -276,7 +282,7 @@ function StudentPortal({ onLogout }) {
             </section>
           </>
         )}
-        <footer className="student-footer">DQRAttendance <span>Secure student access</span></footer>
+        <footer className="student-footer">DQRSmartAttendance <span>Secure student access</span></footer>
       </div>
     </main>
   );

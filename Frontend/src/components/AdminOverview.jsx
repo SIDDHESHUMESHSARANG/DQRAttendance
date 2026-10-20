@@ -110,7 +110,7 @@ function AdminOverview({ admin, onNavigate }) {
       </section>
 
       <footer className="dashboard-footer">
-        <span>DQRAttendance</span>
+        <span>DQRSmartAttendance</span>
         <span>Live data from your campus workspace</span>
       </footer>
     </div>

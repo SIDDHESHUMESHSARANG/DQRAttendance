@@ -1,6 +1,6 @@
 
 {
-  "name": "frontend",
+  "name": "dqr-smart-attendance-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
