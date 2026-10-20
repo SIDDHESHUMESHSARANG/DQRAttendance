@@ -13,9 +13,10 @@ origin, set `VITE_API_URL` to the API base path, including `/api`, before
 starting or building the frontend.
 
 For the deployed API, configure the Vercel project environment variable
-`VITE_API_URL` as `https://dqrattendance.onrender.com/api`, then redeploy the
-frontend. The Render backend must allow the Vercel site's exact origin through
-its `FRONTEND_URL` environment setting; the main
+`VITE_API_URL` as `https://dqrattendance.onrender.com/api` (the frontend also
+appends `/api` if only the host is supplied), then redeploy the frontend.
+The Render backend must allow the Vercel site's exact origin through its
+`FRONTEND_URL` environment setting; the main
 `https://dqr-attendance.vercel.app` origin is allowed by default.
 
 ## Portals
