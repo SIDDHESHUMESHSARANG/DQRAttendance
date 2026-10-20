@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useState } from "react";
+import { Toaster, toast } from "react-hot-toast";
 import { studentService } from "../services/studentService";
 import "./StudentManagement.css";
 
@@ -64,6 +65,8 @@ function StudentManagement({ onBack }) {
   const [history, setHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [confirmDeleteStudent, setConfirmDeleteStudent] = useState(null);
+
   const loadStudents = useCallback(async (searchValue = "") => {
     setLoading(true);
     setError("");
@@ -72,7 +75,9 @@ function StudentManagement({ onBack }) {
       const result = await studentService.getStudents(searchValue);
       setStudents(Array.isArray(result.students) ? result.students : []);
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -147,35 +152,59 @@ function StudentManagement({ onBack }) {
           getStudentId(editingStudent),
           payload
         );
+
         setNotice("Student details updated successfully.");
+        toast.success("Student details updated successfully.");
       } else {
         await studentService.addStudent(payload);
+
         setNotice("Student added successfully.");
+        toast.success("Student added successfully.");
       }
 
       closeForm();
       await loadStudents(search);
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   };
 
-  // Delete student
-  const handleDeleteStudent = async (student) => {
+  // Open the custom centered delete confirmation.
+  const handleDeleteStudent = (student) => {
     const studentId = getStudentId(student);
 
     if (!studentId) {
-      setError("Student ID nahi mili. Student delete nahi hua.");
+      const message = "Student ID nahi mili. Student delete nahi hua.";
+      setError(message);
+      toast.error(message);
       return;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${student.name || "this student"}"?`
-    );
+    setError("");
+    setNotice("");
+    setConfirmDeleteStudent(student);
+  };
 
-    if (!confirmed) return;
+  const cancelDelete = () => {
+    if (deletingStudentId) return;
+    setConfirmDeleteStudent(null);
+  };
+
+  // Existing delete service and refresh behavior preserved.
+  const confirmDelete = async () => {
+    if (!confirmDeleteStudent || deletingStudentId) return;
+
+    const studentId = getStudentId(confirmDeleteStudent);
+
+    if (!studentId) {
+      toast.error("Student ID nahi mili. Student delete nahi hua.");
+      setConfirmDeleteStudent(null);
+      return;
+    }
 
     setDeletingStudentId(studentId);
     setError("");
@@ -183,11 +212,17 @@ function StudentManagement({ onBack }) {
 
     try {
       const result = await studentService.deleteStudent(studentId);
+      const message = result.message || "Student deleted successfully.";
 
-      setNotice(result.message || "Student deleted successfully.");
+      setNotice(message);
+      toast.success(message);
+      setConfirmDeleteStudent(null);
+
       await loadStudents(search);
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     } finally {
       setDeletingStudentId(null);
     }
@@ -197,7 +232,9 @@ function StudentManagement({ onBack }) {
     event.preventDefault();
 
     if (!selectedFile) {
-      setError("Pehle CSV ya Excel file select karein.");
+      const message = "Pehle CSV ya Excel file select karein.";
+      setError(message);
+      toast.error(message);
       return;
     }
 
@@ -208,8 +245,10 @@ function StudentManagement({ onBack }) {
 
     try {
       const result = await studentService.bulkUpload(selectedFile);
+
       setUploadResult(result);
       setNotice(result.message || "Bulk upload request completed.");
+      toast.success(result.message || "Bulk upload request completed.");
       setSelectedFile(null);
 
       const fileInput = document.getElementById("student-bulk-file");
@@ -217,7 +256,9 @@ function StudentManagement({ onBack }) {
 
       await loadStudents(search);
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     } finally {
       setUploading(false);
     }
@@ -233,9 +274,12 @@ function StudentManagement({ onBack }) {
       const result = await studentService.getAttendanceHistory(
         getStudentId(student)
       );
+
       setHistory(result.data || result);
     } catch (err) {
-      setError(getErrorMessage(err));
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     } finally {
       setHistoryLoading(false);
     }
@@ -246,22 +290,76 @@ function StudentManagement({ onBack }) {
     setHistory(null);
   };
 
+  useEffect(() => {
+    const modalOpen =
+      showForm || Boolean(historyStudent) || Boolean(confirmDeleteStudent);
+
+    if (!modalOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+
+      if (confirmDeleteStudent && !deletingStudentId) {
+        setConfirmDeleteStudent(null);
+      } else if (historyStudent && !historyLoading) {
+        closeAttendanceHistory();
+      } else if (showForm && !saving) {
+        closeForm();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    showForm,
+    historyStudent,
+    historyLoading,
+    confirmDeleteStudent,
+    deletingStudentId,
+    saving,
+  ]);
+
   return (
     <section className="student-management">
+      <Toaster
+        position="top-center"
+        containerStyle={{
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 110000,
+          width: "100%",
+          maxWidth: "460px",
+          padding: "0 16px",
+        }}
+        toastOptions={{
+          style: {
+            maxWidth: "100%",
+            minWidth: "0",
+            padding: "13px 17px",
+            borderRadius: "12px",
+            fontSize: "14px",
+            fontWeight: 500,
+            boxShadow: "0 12px 35px rgba(15, 23, 42, 0.18)",
+          },
+        }}
+      />
+
       <header className="sm-header">
-        <div>
+        <div className="sm-header-content">
           <button
             type="button"
             className="sm-back-button"
             onClick={onBack}
           >
-            ← Dashboard
+            <span aria-hidden="true">←</span> Dashboard
           </button>
 
           <p className="sm-eyebrow">ADMIN WORKSPACE</p>
           <h2>Student Management</h2>
           <p className="sm-subtitle">
-            Add, search, update, delete and import student records.
+            Manage student records, import data and view attendance history.
           </p>
         </div>
 
@@ -270,19 +368,37 @@ function StudentManagement({ onBack }) {
           className="sm-primary-button"
           onClick={openAddForm}
         >
-          + Add Student
+          <span aria-hidden="true">＋</span> Add Student
         </button>
       </header>
 
       {error && (
         <div className="sm-message sm-error" role="alert">
-          {error}
+          <span aria-hidden="true">!</span>
+          <span>{error}</span>
+          <button
+            type="button"
+            className="sm-message-close"
+            aria-label="Dismiss error"
+            onClick={() => setError("")}
+          >
+            ×
+          </button>
         </div>
       )}
 
       {notice && (
         <div className="sm-message sm-success" role="status">
-          {notice}
+          <span aria-hidden="true">✓</span>
+          <span>{notice}</span>
+          <button
+            type="button"
+            className="sm-message-close"
+            aria-label="Dismiss message"
+            onClick={() => setNotice("")}
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -300,7 +416,9 @@ function StudentManagement({ onBack }) {
 
         <div className="sm-search-row">
           <label className="sm-search-box">
-            <span aria-hidden="true">⌕</span>
+            <span className="sm-search-icon" aria-hidden="true">
+              ⌕
+            </span>
             <input
               type="search"
               value={search}
@@ -316,7 +434,7 @@ function StudentManagement({ onBack }) {
             onClick={() => loadStudents(search)}
             disabled={loading}
           >
-            Refresh
+            <span aria-hidden="true">↻</span> Refresh
           </button>
         </div>
 
@@ -338,7 +456,11 @@ function StudentManagement({ onBack }) {
               {!loading && students.length === 0 && (
                 <tr>
                   <td colSpan="7" className="sm-empty">
-                    No students found.
+                    <span className="sm-empty-icon" aria-hidden="true">
+                      ◌
+                    </span>
+                    <strong>No students found</strong>
+                    <span>Try another search or add a new student.</span>
                   </td>
                 </tr>
               )}
@@ -346,21 +468,30 @@ function StudentManagement({ onBack }) {
               {students.map((student) => (
                 <tr key={getStudentId(student)}>
                   <td>
-                    <strong>{student.name || "—"}</strong>
+                    <div className="sm-student-cell">
+                      <span className="sm-avatar" aria-hidden="true">
+                        {(student.name || "S").trim().charAt(0).toUpperCase()}
+                      </span>
+                      <strong>{student.name || "—"}</strong>
+                    </div>
                   </td>
+
                   <td>{student.rollNo ?? "—"}</td>
+
                   <td>
                     {student.class || "—"}
                     {student.division ? ` / ${student.division}` : ""}
                   </td>
+
                   <td>{student.batch || "—"}</td>
-                  <td>{student.email || "—"}</td>
+                  <td className="sm-email-cell">{student.email || "—"}</td>
                   <td>{student.phone || "—"}</td>
+
                   <td>
                     <div className="sm-actions">
                       <button
                         type="button"
-                        className="sm-text-action"
+                        className="sm-action-button sm-edit-action"
                         onClick={() => openEditForm(student)}
                       >
                         Edit
@@ -368,7 +499,7 @@ function StudentManagement({ onBack }) {
 
                       <button
                         type="button"
-                        className="sm-text-action"
+                        className="sm-action-button sm-history-action"
                         onClick={() => openAttendanceHistory(student)}
                       >
                         History
@@ -376,7 +507,7 @@ function StudentManagement({ onBack }) {
 
                       <button
                         type="button"
-                        className="sm-text-action"
+                        className="sm-action-button sm-delete-action"
                         onClick={() => handleDeleteStudent(student)}
                         disabled={deletingStudentId === getStudentId(student)}
                       >
@@ -392,12 +523,22 @@ function StudentManagement({ onBack }) {
               {loading && (
                 <tr>
                   <td colSpan="7" className="sm-empty">
-                    Loading student records...
+                    <span className="sm-loading-spinner" />
+                    <strong>Loading student records...</strong>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="sm-table-footer">
+          <span>
+            {loading
+              ? "Fetching records..."
+              : `Showing ${students.length} student record${students.length === 1 ? "" : "s"}`}
+          </span>
+          <span>Scroll horizontally to view all columns.</span>
         </div>
       </section>
 
@@ -410,6 +551,10 @@ function StudentManagement({ onBack }) {
               Maximum file size: 5 MB.
             </p>
           </div>
+
+          <span className="sm-upload-icon" aria-hidden="true">
+            ↑
+          </span>
         </div>
 
         <button
@@ -417,7 +562,7 @@ function StudentManagement({ onBack }) {
           className="sm-secondary-button sm-template-button"
           onClick={downloadSampleCSV}
         >
-          Download CSV template
+          <span aria-hidden="true">↓</span> Download CSV template
         </button>
 
         <form className="sm-upload-form" onSubmit={handleUpload}>
@@ -435,9 +580,25 @@ function StudentManagement({ onBack }) {
           />
 
           {selectedFile && (
-            <p className="sm-file-name">
-              Selected: {selectedFile.name}
-            </p>
+            <div className="sm-selected-file">
+              <span aria-hidden="true">▤</span>
+              <span className="sm-file-name">{selectedFile.name}</span>
+              <button
+                type="button"
+                className="sm-remove-file"
+                onClick={() => {
+                  setSelectedFile(null);
+                  const fileInput = document.getElementById(
+                    "student-bulk-file"
+                  );
+                  if (fileInput) fileInput.value = "";
+                }}
+                aria-label="Remove selected file"
+                disabled={uploading}
+              >
+                ×
+              </button>
+            </div>
           )}
 
           <button
@@ -452,9 +613,21 @@ function StudentManagement({ onBack }) {
         {uploadResult && (
           <div className="sm-upload-result" role="status">
             <h4>Upload summary</h4>
-            <p>Total rows: {uploadResult.totalRows ?? "—"}</p>
-            <p>Imported: {uploadResult.importedCount ?? "—"}</p>
-            <p>Failed: {uploadResult.failedCount ?? "—"}</p>
+
+            <div className="sm-upload-stats">
+              <div>
+                <span>Total rows</span>
+                <strong>{uploadResult.totalRows ?? "—"}</strong>
+              </div>
+              <div>
+                <span>Imported</span>
+                <strong>{uploadResult.importedCount ?? "—"}</strong>
+              </div>
+              <div>
+                <span>Failed</span>
+                <strong>{uploadResult.failedCount ?? "—"}</strong>
+              </div>
+            </div>
 
             {Array.isArray(uploadResult.errors) &&
               uploadResult.errors.length > 0 && (
@@ -475,8 +648,14 @@ function StudentManagement({ onBack }) {
         )}
       </section>
 
+      {/* Add / Edit Student Modal */}
       {showForm && (
-        <div className="sm-modal-backdrop">
+        <div
+          className="sm-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeForm();
+          }}
+        >
           <section
             className="sm-modal"
             role="dialog"
@@ -489,6 +668,11 @@ function StudentManagement({ onBack }) {
                 <h3 id="sm-student-form-title">
                   {editingStudent ? "Edit student" : "Add student"}
                 </h3>
+                <p className="sm-modal-subtitle">
+                  {editingStudent
+                    ? "Update the student information below."
+                    : "Enter the details to create a student record."}
+                </p>
               </div>
 
               <button
@@ -510,6 +694,7 @@ function StudentManagement({ onBack }) {
                     name="name"
                     value={form.name}
                     onChange={handleFormChange}
+                    placeholder="Enter full name"
                     required
                   />
                 </div>
@@ -522,6 +707,7 @@ function StudentManagement({ onBack }) {
                     type="email"
                     value={form.email}
                     onChange={handleFormChange}
+                    placeholder="student@example.com"
                     required
                   />
                 </div>
@@ -536,6 +722,7 @@ function StudentManagement({ onBack }) {
                     step="1"
                     value={form.rollNo}
                     onChange={handleFormChange}
+                    placeholder="Enter roll number"
                     required
                   />
                 </div>
@@ -547,6 +734,7 @@ function StudentManagement({ onBack }) {
                     name="class"
                     value={form.class}
                     onChange={handleFormChange}
+                    placeholder="e.g. TYBSc CS"
                     required
                   />
                 </div>
@@ -558,6 +746,7 @@ function StudentManagement({ onBack }) {
                     name="division"
                     value={form.division}
                     onChange={handleFormChange}
+                    placeholder="e.g. A"
                     required
                   />
                 </div>
@@ -569,6 +758,7 @@ function StudentManagement({ onBack }) {
                     name="batch"
                     value={form.batch}
                     onChange={handleFormChange}
+                    placeholder="e.g. B1,B2"
                   />
                 </div>
 
@@ -580,6 +770,7 @@ function StudentManagement({ onBack }) {
                     type="tel"
                     value={form.phone}
                     onChange={handleFormChange}
+                    placeholder="Enter phone number"
                   />
                 </div>
               </div>
@@ -617,8 +808,19 @@ function StudentManagement({ onBack }) {
         </div>
       )}
 
+      {/* Attendance History Modal */}
       {historyStudent && (
-        <div className="sm-modal-backdrop">
+        <div
+          className="sm-modal-backdrop"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !historyLoading
+            ) {
+              closeAttendanceHistory();
+            }
+          }}
+        >
           <section
             className="sm-modal sm-history-modal"
             role="dialog"
@@ -631,6 +833,9 @@ function StudentManagement({ onBack }) {
                 <h3 id="sm-history-title">
                   {historyStudent.name || "Student"} — History
                 </h3>
+                <p className="sm-modal-subtitle">
+                  Attendance summary and session records.
+                </p>
               </div>
 
               <button
@@ -644,7 +849,10 @@ function StudentManagement({ onBack }) {
             </header>
 
             {historyLoading ? (
-              <p className="sm-empty">Loading attendance history...</p>
+              <div className="sm-empty">
+                <span className="sm-loading-spinner" />
+                <strong>Loading attendance history...</strong>
+              </div>
             ) : history ? (
               <>
                 <div className="sm-history-summary">
@@ -675,7 +883,7 @@ function StudentManagement({ onBack }) {
                 </div>
 
                 <div className="sm-table-wrap">
-                  <table className="sm-table">
+                  <table className="sm-table sm-history-table">
                     <thead>
                       <tr>
                         <th>Date</th>
@@ -683,6 +891,7 @@ function StudentManagement({ onBack }) {
                         <th>Status</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {(history.attendanceHistory || []).length === 0 ? (
                         <tr>
@@ -709,9 +918,11 @@ function StudentManagement({ onBack }) {
                                 "—"}
                             </td>
                             <td>
-                              {record.status ||
-                                record.attendanceStatus ||
-                                "—"}
+                              <span className="sm-status-text">
+                                {record.status ||
+                                  record.attendanceStatus ||
+                                  "—"}
+                              </span>
                             </td>
                           </tr>
                         ))
@@ -733,6 +944,64 @@ function StudentManagement({ onBack }) {
                 onClick={closeAttendanceHistory}
               >
                 Close
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {/* Centered Delete Confirmation */}
+      {confirmDeleteStudent && (
+        <div
+          className="sm-modal-backdrop sm-confirm-backdrop"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !deletingStudentId
+            ) {
+              cancelDelete();
+            }
+          }}
+        >
+          <section
+            className="sm-modal sm-confirm-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sm-delete-title"
+            aria-describedby="sm-delete-description"
+          >
+            <div className="sm-confirm-icon" aria-hidden="true">
+              !
+            </div>
+
+            <h3 id="sm-delete-title">Delete student?</h3>
+
+            <p id="sm-delete-description">
+              Are you sure you want to delete this student? This action
+              cannot be undone.
+            </p>
+
+            <span className="sm-confirm-student-name">
+              {confirmDeleteStudent.name || "Selected student"}
+            </span>
+
+            <footer className="sm-modal-actions">
+              <button
+                type="button"
+                className="sm-secondary-button"
+                onClick={cancelDelete}
+                disabled={Boolean(deletingStudentId)}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="sm-primary-button sm-delete-confirm-button"
+                onClick={confirmDelete}
+                disabled={Boolean(deletingStudentId)}
+              >
+                {deletingStudentId ? "Deleting..." : "Delete Student"}
               </button>
             </footer>
           </section>

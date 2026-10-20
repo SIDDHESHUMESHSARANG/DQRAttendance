@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useState, useEffect } from "react";
 import "./App.css";
 
 import StudentManagement from "./components/StudentManagement";
@@ -47,7 +48,102 @@ const roleDetails = {
   },
 };
 
+// Toast notification component
+function ToastContainer({ toasts, onDismiss }) {
+  if (!toasts.length) return null;
+
+  return (
+    <div
+      className="app-toast-container"
+      aria-live="polite"
+      aria-atomic="false"
+    >
+      {toasts.map((toast) => (
+        <div
+          className={`app-toast app-toast-${toast.type}`}
+          key={toast.id}
+          role={toast.type === "error" ? "alert" : "status"}
+        >
+          <span className="app-toast-icon" aria-hidden="true">
+            {toast.type === "success"
+              ? "✓"
+              : toast.type === "error"
+              ? "!"
+              : toast.type === "warning"
+              ? "⚠"
+              : "i"}
+          </span>
+
+          <div className="app-toast-content">
+            <p className="app-toast-title">{toast.title}</p>
+            <p className="app-toast-message">{toast.message}</p>
+          </div>
+
+          <button
+            type="button"
+            className="app-toast-close"
+            aria-label="Dismiss notification"
+            onClick={() => onDismiss(toast.id)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function App() {
+  // Toast state
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = (message, type = "success", title) => {
+    const id = `${Date.now()}-${Math.random()}`;
+
+    const titles = {
+      success: "Success",
+      error: "Something went wrong",
+      warning: "Warning",
+      info: "Information",
+    };
+
+    setToasts((current) => [
+      ...current.slice(-2),
+      {
+        id,
+        type,
+        title: title || titles[type] || "Notification",
+        message,
+      },
+    ]);
+  };
+
+  const dismissToast = (id) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  };
+
+  // Listen for notifications from child components such as Professor.jsx.
+  useEffect(() => {
+    const handleAppToast = (event) => {
+      const detail = event.detail || {};
+
+      if (typeof detail.message !== "string" || !detail.message) return;
+
+      const allowedTypes = ["success", "error", "warning", "info"];
+      const type = allowedTypes.includes(detail.type)
+        ? detail.type
+        : "info";
+
+      showToast(detail.message, type, detail.title);
+    };
+
+    window.addEventListener("app-toast", handleAppToast);
+
+    return () => {
+      window.removeEventListener("app-toast", handleAppToast);
+    };
+  }, []);
+
   // Restore the saved session when the page loads
   const [page, setPage] = useState(() => {
     try {
@@ -158,7 +254,9 @@ function App() {
     setNotice("");
 
     if (role === "student") {
-      setError("Student login has not been connected yet.");
+      const message = "Student login has not been connected yet.";
+      setError(message);
+      showToast(message, "warning");
       setLoading(false);
       return;
     }
@@ -186,6 +284,8 @@ function App() {
         setDashboardMenuOpen(false);
         setActiveSection("overview");
         setPage("dashboard");
+
+        showToast("Welcome back, " + (data.admin.name || "Admin") + "!", "success", "Login successful");
       } else if (role === "professor") {
         const data = await apiRequest(
           "/login",
@@ -214,13 +314,21 @@ function App() {
         setPassword("");
         setDashboardMenuOpen(false);
         setPage("professorDashboard");
+
+        showToast(
+          "Welcome back, " + (data.professor.name || "Professor") + "!",
+          "success",
+          "Login successful"
+        );
       }
     } catch (err) {
-      setError(
+      const message =
         err instanceof TypeError
           ? "Cannot connect to the backend. Check that the server is running."
-          : err.message
-      );
+          : err.message;
+
+      setError(message);
+      showToast(message, "error", "Login failed");
     } finally {
       setLoading(false);
     }
@@ -246,6 +354,8 @@ function App() {
         setOtp("");
         setPage("verify");
         setNotice("OTP sent successfully. Check your registered email.");
+
+        showToast("Check your registered email for the OTP.", "success", "OTP sent");
       } else if (role === "professor") {
         // Professor email must already be registered by Admin.
         await apiRequest(
@@ -260,15 +370,21 @@ function App() {
         setOtp("");
         setPage("verify");
         setNotice("OTP sent successfully. Check your registered email.");
+
+        showToast("Check your registered email for the OTP.", "success", "OTP sent");
       } else {
-        setError("Student registration has not been connected yet.");
+        const message = "Student registration has not been connected yet.";
+        setError(message);
+        showToast(message, "warning");
       }
     } catch (err) {
-      setError(
+      const message =
         err instanceof TypeError
           ? "Cannot connect to the backend. Check that the server is running."
-          : err.message
-      );
+          : err.message;
+
+      setError(message);
+      showToast(message, "error", "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -294,6 +410,8 @@ function App() {
         setName("");
         setPage("login");
         setNotice("Account verified successfully. You can now sign in.");
+
+        showToast("Your Admin account is verified.", "success", "Verification successful");
       } else if (role === "professor") {
         if (password.length < 8) {
           throw new Error("Password must be at least 8 characters long.");
@@ -313,15 +431,21 @@ function App() {
         setOtp("");
         setPage("login");
         setNotice("Account activated successfully. You can now sign in.");
+
+        showToast("Your Professor account is activated.", "success", "Account activated");
       } else {
-        setError("Student OTP verification has not been connected yet.");
+        const message = "Student OTP verification has not been connected yet.";
+        setError(message);
+        showToast(message, "warning");
       }
     } catch (err) {
-      setError(
+      const message =
         err instanceof TypeError
           ? "Cannot connect to the backend. Check that the server is running."
-          : err.message
-      );
+          : err.message;
+
+      setError(message);
+      showToast(message, "error", "Verification failed");
     } finally {
       setLoading(false);
     }
@@ -360,6 +484,8 @@ function App() {
       setPage("roles");
       setError("");
       setNotice("");
+
+      showToast("You have signed out successfully.", "success", "Logged out");
     }
   };
 
@@ -378,6 +504,8 @@ function App() {
     setPage("roles");
     setError("");
     setNotice("");
+
+    showToast("You have signed out successfully.", "success", "Logged out");
   };
 
   // Return to role selection
@@ -398,17 +526,17 @@ function App() {
     setNotice("");
   };
 
-  // =====================================================
   // PROFESSOR DASHBOARD
-  // Render the separate Professor.jsx component.
-  // =====================================================
   if (page === "professorDashboard" && professor) {
-    return <Professor onLogout={handleProfessorLogout} />;
+    return (
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <Professor onLogout={handleProfessorLogout} />
+      </>
+    );
   }
 
-  // =====================================================
   // ADMIN DASHBOARD
-  // =====================================================
   if (page === "dashboard" && admin) {
     const adminName = admin.name || "Admin";
 
@@ -428,813 +556,819 @@ function App() {
     };
 
     return (
-      <main className="dashboard-shell">
-        <aside
-          className={`dashboard-sidebar ${
-            dashboardMenuOpen ? "sidebar-open" : ""
-          }`}
-        >
-          <a
-            className="dashboard-brand"
-            href="#dashboard"
-            onClick={(event) => {
-              event.preventDefault();
-              openSection("overview");
-            }}
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+        <main className="dashboard-shell">
+          <aside
+            className={`dashboard-sidebar ${
+              dashboardMenuOpen ? "sidebar-open" : ""
+            }`}
           >
-            <span className="dashboard-brand-mark">Q</span>
-            <span className="dashboard-brand-name">
-              QR Attendance
-              <small>ADMIN WORKSPACE</small>
-            </span>
-          </a>
-
-          <div className="sidebar-section-label">WORKSPACE</div>
-
-          <nav className="dashboard-nav" aria-label="Admin navigation">
-            <button
-              type="button"
-              className={`dashboard-nav-item ${
-                activeSection === "overview" ? "active" : ""
-              }`}
-              onClick={() => openSection("overview")}
+            <a
+              className="dashboard-brand"
+              href="#dashboard"
+              onClick={(event) => {
+                event.preventDefault();
+                openSection("overview");
+              }}
             >
-              <span className="nav-symbol">▦</span>
-              <span>Overview</span>
-            </button>
-
-            <div className="sidebar-section-label">MANAGEMENT</div>
-
-            <button
-              type="button"
-              className={`dashboard-nav-item ${
-                activeSection === "students" ? "active" : ""
-              }`}
-              onClick={() => openSection("students")}
-            >
-              <span className="nav-symbol">♙</span>
-              <span>Students</span>
-            </button>
-
-            <button
-              type="button"
-              className={`dashboard-nav-item ${
-                activeSection === "professors" ? "active" : ""
-              }`}
-              onClick={() => openSection("professors")}
-            >
-              <span className="nav-symbol">♧</span>
-              <span>Professors</span>
-            </button>
-
-            <button
-              type="button"
-              className={`dashboard-nav-item ${
-                activeSection === "classrooms" ? "active" : ""
-              }`}
-              onClick={() => openSection("classrooms")}
-            >
-              <span className="nav-symbol">▤</span>
-              <span>Classrooms</span>
-            </button>
-
-            <button
-              type="button"
-              className={`dashboard-nav-item ${
-                activeSection === "attendance" ? "active" : ""
-              }`}
-              onClick={() => openSection("attendance")}
-            >
-              <span className="nav-symbol">✓</span>
-              <span>Attendance</span>
-            </button>
-          </nav>
-
-          <div className="sidebar-bottom">
-            <div className="sidebar-admin">
-              <span className="admin-avatar">{initials || "A"}</span>
-              <span className="sidebar-admin-info">
-                <strong>{adminName}</strong>
-                <small>Administrator</small>
+              <span className="dashboard-brand-mark">Q</span>
+              <span className="dashboard-brand-name">
+                QR Attendance
+                <small>ADMIN WORKSPACE</small>
               </span>
-            </div>
+            </a>
 
-            <button
-              className="dashboard-logout"
-              type="button"
-              onClick={handleLogout}
-            >
-              <span>↪</span>
-              Sign out
-            </button>
-          </div>
-        </aside>
+            <div className="sidebar-section-label">WORKSPACE</div>
 
-        {dashboardMenuOpen && (
-          <button
-            className="dashboard-overlay"
-            type="button"
-            aria-label="Close navigation menu"
-            onClick={() => setDashboardMenuOpen(false)}
-          />
-        )}
-
-        <section className="dashboard-main">
-          <header className="dashboard-topbar">
-            <div className="dashboard-topbar-left">
+            <nav className="dashboard-nav" aria-label="Admin navigation">
               <button
-                className="dashboard-menu-toggle"
                 type="button"
-                aria-label="Toggle navigation"
-                aria-expanded={dashboardMenuOpen}
-                onClick={() =>
-                  setDashboardMenuOpen((current) => !current)
-                }
+                className={`dashboard-nav-item ${
+                  activeSection === "overview" ? "active" : ""
+                }`}
+                onClick={() => openSection("overview")}
               >
-                <span />
-                <span />
-                <span />
+                <span className="nav-symbol">▦</span>
+                <span>Overview</span>
               </button>
 
-              <div>
-                <div className="dashboard-breadcrumb">
-                  Workspace <span>/</span>{" "}
-                  {sectionTitles[activeSection] || "Overview"}
-                </div>
-                <h1>Dashboard</h1>
+              <div className="sidebar-section-label">MANAGEMENT</div>
+
+              <button
+                type="button"
+                className={`dashboard-nav-item ${
+                  activeSection === "students" ? "active" : ""
+                }`}
+                onClick={() => openSection("students")}
+              >
+                <span className="nav-symbol">♙</span>
+                <span>Students</span>
+              </button>
+
+              <button
+                type="button"
+                className={`dashboard-nav-item ${
+                  activeSection === "professors" ? "active" : ""
+                }`}
+                onClick={() => openSection("professors")}
+              >
+                <span className="nav-symbol">♧</span>
+                <span>Professors</span>
+              </button>
+
+              <button
+                type="button"
+                className={`dashboard-nav-item ${
+                  activeSection === "classrooms" ? "active" : ""
+                }`}
+                onClick={() => openSection("classrooms")}
+              >
+                <span className="nav-symbol">▤</span>
+                <span>Classrooms</span>
+              </button>
+
+              <button
+                type="button"
+                className={`dashboard-nav-item ${
+                  activeSection === "attendance" ? "active" : ""
+                }`}
+                onClick={() => openSection("attendance")}
+              >
+                <span className="nav-symbol">✓</span>
+                <span>Attendance</span>
+              </button>
+            </nav>
+
+            <div className="sidebar-bottom">
+              <div className="sidebar-admin">
+                <span className="admin-avatar">{initials || "A"}</span>
+                <span className="sidebar-admin-info">
+                  <strong>{adminName}</strong>
+                  <small>Administrator</small>
+                </span>
               </div>
+
+              <button
+                className="dashboard-logout"
+                type="button"
+                onClick={handleLogout}
+              >
+                <span>↪</span>
+                Sign out
+              </button>
             </div>
+          </aside>
 
-            <div className="dashboard-topbar-right">
-              <div className="topbar-date">
-                <span className="status-dot" />
-                Signed in
-              </div>
-              <div className="topbar-avatar" title={adminName}>
-                {initials || "A"}
-              </div>
-            </div>
-          </header>
+          {dashboardMenuOpen && (
+            <button
+              className="dashboard-overlay"
+              type="button"
+              aria-label="Close navigation menu"
+              onClick={() => setDashboardMenuOpen(false)}
+            />
+          )}
 
-          <div className="dashboard-content" id="dashboard-overview">
-            {activeSection === "students" ? (
-              <StudentManagement
-                onBack={() => openSection("overview")}
-              />
-            ) : activeSection === "professors" ? (
-              <ProfessorManagement
-                onBack={() => openSection("overview")}
-              />
-            ) : activeSection === "classrooms" ? (
-              <ClassroomManagement
-                onBack={() => openSection("overview")}
-              />
-            ) : activeSection === "overview" ? (
-              <>
-                <section className="dashboard-greeting">
-                  <div>
-                    <p className="dashboard-overline">OVERVIEW</p>
-                    <h2>Welcome back, {adminName}</h2>
-                    <p>
-                      Manage your attendance system from one place.
-                    </p>
-                  </div>
-
-                  <div className="greeting-mark" aria-hidden="true">
-                    <span>Q</span>
-                  </div>
-                </section>
-
-                <section className="dashboard-section">
-                  <div className="section-heading">
-                    <div>
-                      <h3>Account overview</h3>
-                      <p>Your administrator account information.</p>
-                    </div>
-
-                    <span className="account-status">
-                      <span />
-                      Signed in
-                    </span>
-                  </div>
-
-                  <div className="account-details-card">
-                    <div className="account-details-header">
-                      <div className="account-large-avatar">
-                        {initials || "A"}
-                      </div>
-
-                      <div className="account-primary-info">
-                        <h4>{adminName}</h4>
-                        <p>{admin.email || "Email not available"}</p>
-                      </div>
-
-                      <span className="account-role-badge">ADMIN</span>
-                    </div>
-
-                    <div className="account-detail-grid">
-                      <div className="account-detail">
-                        <span>FULL NAME</span>
-                        <strong>{admin.name || "Not provided"}</strong>
-                      </div>
-
-                      <div className="account-detail">
-                        <span>EMAIL ADDRESS</span>
-                        <strong>{admin.email || "Not provided"}</strong>
-                      </div>
-
-                      <div className="account-detail">
-                        <span>ACCOUNT ROLE</span>
-                        <strong>{admin.role || "Admin"}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="dashboard-section">
-                  <div className="section-heading">
-                    <div>
-                      <h3>Management workspace</h3>
-                      <p>Administration modules for your system.</p>
-                    </div>
-                  </div>
-
-                  <div className="management-grid">
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("students")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("students");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon students-icon">
-                        S
-                      </span>
-                      <div>
-                        <h4>Students</h4>
-                        <p>Student records and bulk uploads.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("professors")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("professors");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon professors-icon">
-                        P
-                      </span>
-                      <div>
-                        <h4>Professors</h4>
-                        <p>Professor records and registration.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("classrooms")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("classrooms");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon classrooms-icon">
-                        C
-                      </span>
-                      <div>
-                        <h4>Classrooms</h4>
-                        <p>
-                          Manage classroom locations and attendance radius.
-                        </p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-
-                    <article
-                      className="management-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openSection("attendance")}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openSection("attendance");
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="management-icon attendance-icon">
-                        A
-                      </span>
-                      <div>
-                        <h4>Attendance</h4>
-                        <p>Attendance records and reports.</p>
-                      </div>
-                      <span className="module-status">Open</span>
-                    </article>
-                  </div>
-                </section>
-
-                <footer className="dashboard-footer">
-                  <span>QR Attendance System</span>
-                  <span>Administrator workspace</span>
-                </footer>
-              </>
-            ) : (
-              <section className="dashboard-section">
-                <div className="section-heading">
-                  <div>
-                    <p className="dashboard-overline">MANAGEMENT</p>
-                    <h3>{sectionTitles[activeSection]}</h3>
-                    <p>This module has not been connected yet.</p>
-                  </div>
-                </div>
-
+          <section className="dashboard-main">
+            <header className="dashboard-topbar">
+              <div className="dashboard-topbar-left">
                 <button
-                  className="primary-button"
+                  className="dashboard-menu-toggle"
                   type="button"
-                  onClick={() => openSection("overview")}
+                  aria-label="Toggle navigation"
+                  aria-expanded={dashboardMenuOpen}
+                  onClick={() =>
+                    setDashboardMenuOpen((current) => !current)
+                  }
                 >
-                  ← Back to Overview
+                  <span />
+                  <span />
+                  <span />
                 </button>
-              </section>
-            )}
-          </div>
-        </section>
-      </main>
+
+                <div>
+                  <div className="dashboard-breadcrumb">
+                    Workspace <span>/</span>{" "}
+                    {sectionTitles[activeSection] || "Overview"}
+                  </div>
+                  <h1>Dashboard</h1>
+                </div>
+              </div>
+
+              <div className="dashboard-topbar-right">
+                <div className="topbar-date">
+                  <span className="status-dot" />
+                  Signed in
+                </div>
+                <div className="topbar-avatar" title={adminName}>
+                  {initials || "A"}
+                </div>
+              </div>
+            </header>
+
+            <div className="dashboard-content" id="dashboard-overview">
+              {activeSection === "students" ? (
+                <StudentManagement
+                  onBack={() => openSection("overview")}
+                />
+              ) : activeSection === "professors" ? (
+                <ProfessorManagement
+                  onBack={() => openSection("overview")}
+                />
+              ) : activeSection === "classrooms" ? (
+                <ClassroomManagement
+                  onBack={() => openSection("overview")}
+                />
+              ) : activeSection === "overview" ? (
+                <>
+                  <section className="dashboard-greeting">
+                    <div>
+                      <p className="dashboard-overline">OVERVIEW</p>
+                      <h2>Welcome back, {adminName}</h2>
+                      <p>
+                        Manage your attendance system from one place.
+                      </p>
+                    </div>
+
+                    <div className="greeting-mark" aria-hidden="true">
+                      <span>Q</span>
+                    </div>
+                  </section>
+
+                  <section className="dashboard-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Account overview</h3>
+                        <p>Your administrator account information.</p>
+                      </div>
+
+                      <span className="account-status">
+                        <span />
+                        Signed in
+                      </span>
+                    </div>
+
+                    <div className="account-details-card">
+                      <div className="account-details-header">
+                        <div className="account-large-avatar">
+                          {initials || "A"}
+                        </div>
+
+                        <div className="account-primary-info">
+                          <h4>{adminName}</h4>
+                          <p>{admin.email || "Email not available"}</p>
+                        </div>
+
+                        <span className="account-role-badge">ADMIN</span>
+                      </div>
+
+                      <div className="account-detail-grid">
+                        <div className="account-detail">
+                          <span>FULL NAME</span>
+                          <strong>{admin.name || "Not provided"}</strong>
+                        </div>
+
+                        <div className="account-detail">
+                          <span>EMAIL ADDRESS</span>
+                          <strong>{admin.email || "Not provided"}</strong>
+                        </div>
+
+                        <div className="account-detail">
+                          <span>ACCOUNT ROLE</span>
+                          <strong>{admin.role || "Admin"}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="dashboard-section">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Management workspace</h3>
+                        <p>Administration modules for your system.</p>
+                      </div>
+                    </div>
+
+                    <div className="management-grid">
+                      <article
+                        className="management-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openSection("students")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openSection("students");
+                          }
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <span className="management-icon students-icon">
+                          S
+                        </span>
+                        <div>
+                          <h4>Students</h4>
+                          <p>Student records and bulk uploads.</p>
+                        </div>
+                        <span className="module-status">Open</span>
+                      </article>
+
+                      <article
+                        className="management-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openSection("professors")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openSection("professors");
+                          }
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <span className="management-icon professors-icon">
+                          P
+                        </span>
+                        <div>
+                          <h4>Professors</h4>
+                          <p>Professor records and registration.</p>
+                        </div>
+                        <span className="module-status">Open</span>
+                      </article>
+
+                      <article
+                        className="management-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openSection("classrooms")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openSection("classrooms");
+                          }
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <span className="management-icon classrooms-icon">
+                          C
+                        </span>
+                        <div>
+                          <h4>Classrooms</h4>
+                          <p>
+                            Manage classroom locations and attendance radius.
+                          </p>
+                        </div>
+                        <span className="module-status">Open</span>
+                      </article>
+
+                      <article
+                        className="management-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openSection("attendance")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openSection("attendance");
+                          }
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <span className="management-icon attendance-icon">
+                          A
+                        </span>
+                        <div>
+                          <h4>Attendance</h4>
+                          <p>Attendance records and reports.</p>
+                        </div>
+                        <span className="module-status">Open</span>
+                      </article>
+                    </div>
+                  </section>
+
+                  <footer className="dashboard-footer">
+                    <span>QR Attendance System</span>
+                    <span>Administrator workspace</span>
+                  </footer>
+                </>
+              ) : (
+                <section className="dashboard-section">
+                  <div className="section-heading">
+                    <div>
+                      <p className="dashboard-overline">MANAGEMENT</p>
+                      <h3>{sectionTitles[activeSection]}</h3>
+                      <p>This module has not been connected yet.</p>
+                    </div>
+                  </div>
+
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => openSection("overview")}
+                  >
+                    ← Back to Overview
+                  </button>
+                </section>
+              )}
+            </div>
+          </section>
+        </main>
+      </>
     );
   }
 
-  // =====================================================
   // ROLE SELECTION, LOGIN, REGISTRATION AND OTP
-  // =====================================================
   return (
-    <main className="auth-page">
-      <header className="auth-header">
-        <a
-          className="brand"
-          href="#"
-          onClick={(event) => {
-            event.preventDefault();
-            backToRoles();
-          }}
-        >
-          <span className="brand-mark">QR</span>
-          <span>QR Attendance System</span>
-        </a>
+    <>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-        <span className="header-caption">
-          ATTENDANCE MANAGEMENT
-        </span>
-      </header>
+      <main className="auth-page">
+        <header className="auth-header">
+          <a
+            className="brand"
+            href="#"
+            onClick={(event) => {
+              event.preventDefault();
+              backToRoles();
+            }}
+          >
+            <span className="brand-mark">QR</span>
+            <span>QR Attendance System</span>
+          </a>
 
-      {page === "roles" ? (
-        <section className="role-selection">
-          <div className="role-heading">
-            <span className="mobile-brand-mark">QR</span>
-            <p className="eyebrow">WELCOME</p>
-            <h1>Select your role</h1>
-            <p className="form-description">
-              Choose how you want to access the QR Attendance System.
-            </p>
-          </div>
+          <span className="header-caption">
+            ATTENDANCE MANAGEMENT
+          </span>
+        </header>
 
-          <div className="role-grid">
-            {Object.entries(roleDetails).map(([key, item]) => (
-              <button
-                className="role-card"
-                type="button"
-                key={key}
-                onClick={() => selectRole(key)}
-              >
-                <span className={`role-icon role-icon-${key}`}>
-                  {item.icon}
-                </span>
-
-                <span className="role-card-title">{item.title}</span>
-
-                <span className="role-card-description">
-                  {item.description}
-                </span>
-
-                <span className="role-card-action">
-                  Continue <span aria-hidden="true">→</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : (
-        <section className="auth-layout">
-          <aside className="intro-panel">
-            <div className="intro-content">
-              <span className="intro-tag">QR ATTENDANCE SYSTEM</span>
-
-              <h1>
-                Attendance
-                <br />
-                management,
-                <br />
-                <span>simplified.</span>
-              </h1>
-
-              <p>{roleDetails[role].description}</p>
-              <div className="intro-divider" />
-
-              <div className="intro-point">
-                <span className="point-symbol">01</span>
-                <span>Role-based access</span>
-              </div>
-
-              <div className="intro-point">
-                <span className="point-symbol">02</span>
-                <span>Secure account authentication</span>
-              </div>
-
-              <div className="intro-point">
-                <span className="point-symbol">03</span>
-                <span>Email verification for registration</span>
-              </div>
+        {page === "roles" ? (
+          <section className="role-selection">
+            <div className="role-heading">
+              <span className="mobile-brand-mark">QR</span>
+              <p className="eyebrow">WELCOME</p>
+              <h1>Select your role</h1>
+              <p className="form-description">
+                Choose how you want to access the QR Attendance System.
+              </p>
             </div>
 
-            <p className="intro-footer">QR ATTENDANCE SYSTEM</p>
-          </aside>
+            <div className="role-grid">
+              {Object.entries(roleDetails).map(([key, item]) => (
+                <button
+                  className="role-card"
+                  type="button"
+                  key={key}
+                  onClick={() => selectRole(key)}
+                >
+                  <span className={`role-icon role-icon-${key}`}>
+                    {item.icon}
+                  </span>
 
-          <section className="form-panel">
-            <div className="auth-card">
-              <button
-                className="back-button"
-                type="button"
-                onClick={backToRoles}
-              >
-                ← Change role
-              </button>
+                  <span className="role-card-title">{item.title}</span>
 
-              <div className="selected-role">
-                <span className={`role-icon role-icon-${role}`}>
-                  {roleDetails[role].icon}
-                </span>
-                <span>{roleDetails[role].title}</span>
-              </div>
+                  <span className="role-card-description">
+                    {item.description}
+                  </span>
 
-              {/* LOGIN */}
-              {page === "login" && (
-                <>
-                  <p className="eyebrow">WELCOME BACK</p>
-                  <h2>Login</h2>
-
-                  <p className="form-description">
-                    Sign in to your {roleDetails[role].title.toLowerCase()}{" "}
-                    account.
-                  </p>
-
-                  {notice && (
-                    <p className="message success-message" role="status">
-                      {notice}
-                    </p>
-                  )}
-
-                  <form onSubmit={handleLogin}>
-                    <div className="form-group">
-                      <label htmlFor="login-email">
-                        Email address
-                      </label>
-
-                      <input
-                        id="login-email"
-                        type="email"
-                        placeholder="you@example.com"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        autoComplete="username"
-                        required
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label htmlFor="login-password">
-                        Password
-                      </label>
-
-                      <div className="password-field">
-                        <input
-                          id="login-password"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Enter your password"
-                          value={password}
-                          onChange={(event) =>
-                            setPassword(event.target.value)
-                          }
-                          autoComplete="current-password"
-                          required
-                        />
-
-                        <button
-                          className="text-button"
-                          type="button"
-                          onClick={() =>
-                            setShowPassword((current) => !current)
-                          }
-                        >
-                          {showPassword ? "Hide" : "Show"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {error && (
-                      <p className="message error-message" role="alert">
-                        {error}
-                      </p>
-                    )}
-
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={loading}
-                    >
-                      {loading ? "Signing in..." : "Login"}
-                      {!loading && <span aria-hidden="true"> →</span>}
-                    </button>
-                  </form>
-
-                  <div className="form-switch">
-                    <span>New user?</span>
-
-                    <button
-                      className="text-button link-button"
-                      type="button"
-                      onClick={() => {
-                        setPassword("");
-                        setError("");
-                        setNotice("");
-                        changePage("register");
-                      }}
-                    >
-                      Register
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* REGISTRATION */}
-              {page === "register" && (
-                <>
-                  <p className="eyebrow">CREATE ACCOUNT</p>
-                  <h2>Register</h2>
-
-                  <p className="form-description">
-                    {role === "admin"
-                      ? "Enter your details to create an Admin account."
-                      : role === "professor"
-                      ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
-                      : "Student registration has not been connected yet."}
-                  </p>
-
-                  <form onSubmit={handleRegister}>
-                    {role === "admin" && (
-                      <div className="form-group">
-                        <label htmlFor="register-name">
-                          Full name
-                        </label>
-
-                        <input
-                          id="register-name"
-                          type="text"
-                          placeholder="Enter your full name"
-                          value={name}
-                          onChange={(event) => setName(event.target.value)}
-                          autoComplete="name"
-                          required
-                        />
-                      </div>
-                    )}
-
-                    <div className="form-group">
-                      <label htmlFor="register-email">
-                        Email address
-                      </label>
-
-                      <input
-                        id="register-email"
-                        type="email"
-                        placeholder="Enter your registered email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        autoComplete="email"
-                        required
-                      />
-                    </div>
-
-                    {role === "admin" && (
-                      <div className="form-group">
-                        <label htmlFor="register-password">
-                          Create password
-                        </label>
-
-                        <div className="password-field">
-                          <input
-                            id="register-password"
-                            type={showPassword ? "text" : "password"}
-                            placeholder="At least 8 characters"
-                            value={password}
-                            onChange={(event) =>
-                              setPassword(event.target.value)
-                            }
-                            autoComplete="new-password"
-                            minLength={8}
-                            required
-                          />
-
-                          <button
-                            className="text-button"
-                            type="button"
-                            onClick={() =>
-                              setShowPassword((current) => !current)
-                            }
-                          >
-                            {showPassword ? "Hide" : "Show"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {error && (
-                      <p className="message error-message" role="alert">
-                        {error}
-                      </p>
-                    )}
-
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={loading || role === "student"}
-                    >
-                      {loading ? "Please wait..." : "Send OTP"}
-                      {!loading && <span aria-hidden="true"> →</span>}
-                    </button>
-                  </form>
-
-                  <div className="form-switch">
-                    <span>Already registered?</span>
-
-                    <button
-                      className="text-button link-button"
-                      type="button"
-                      onClick={() => changePage("login")}
-                    >
-                      Login
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* OTP VERIFICATION */}
-              {page === "verify" && (
-                <>
-                  <div className="otp-icon" aria-hidden="true">
-                    ✉
-                  </div>
-
-                  <p className="eyebrow">EMAIL VERIFICATION</p>
-                  <h2>Verify your email</h2>
-
-                  <p className="form-description">
-                    Enter the 6-digit OTP sent to <strong>{email}</strong>.
-                    The code expires after 3 minutes.
-                  </p>
-
-                  {notice && (
-                    <p className="message success-message" role="status">
-                      {notice}
-                    </p>
-                  )}
-
-                  <form onSubmit={handleVerifyOTP}>
-                    <div className="form-group">
-                      <label htmlFor="otp">
-                        Verification code
-                      </label>
-
-                      <input
-                        id="otp"
-                        className="otp-input"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        placeholder="000000"
-                        value={otp}
-                        onChange={(event) =>
-                          setOtp(
-                            event.target.value.replace(/\D/g, "").slice(0, 6)
-                          )
-                        }
-                        pattern="[0-9]{6}"
-                        maxLength={6}
-                        minLength={6}
-                        required
-                      />
-                    </div>
-
-                    {role === "professor" && (
-                      <div className="form-group">
-                        <label htmlFor="professor-new-password">
-                          Create password
-                        </label>
-
-                        <div className="password-field">
-                          <input
-                            id="professor-new-password"
-                            type={showPassword ? "text" : "password"}
-                            placeholder="At least 8 characters"
-                            value={password}
-                            onChange={(event) =>
-                              setPassword(event.target.value)
-                            }
-                            autoComplete="new-password"
-                            minLength={8}
-                            required
-                          />
-
-                          <button
-                            className="text-button"
-                            type="button"
-                            onClick={() =>
-                              setShowPassword((current) => !current)
-                            }
-                          >
-                            {showPassword ? "Hide" : "Show"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {error && (
-                      <p className="message error-message" role="alert">
-                        {error}
-                      </p>
-                    )}
-
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={
-                        loading ||
-                        otp.length !== 6 ||
-                        (role === "professor" && password.length < 8)
-                      }
-                    >
-                      {loading
-                        ? "Verifying..."
-                        : role === "professor"
-                        ? "Verify OTP and create password"
-                        : "Verify email"}
-                    </button>
-                  </form>
-
-                  <p className="otp-help">
-                    If the OTP expires, return to registration and request
-                    another code.
-                  </p>
-                </>
-              )}
-
-              <div className="security-note">
-                <span aria-hidden="true">◆</span>
-                <span>Secure role-based access</span>
-              </div>
+                  <span className="role-card-action">
+                    Continue <span aria-hidden="true">→</span>
+                  </span>
+                </button>
+              ))}
             </div>
           </section>
-        </section>
-      )}
+        ) : (
+          <section className="auth-layout">
+            <aside className="intro-panel">
+              <div className="intro-content">
+                <span className="intro-tag">QR ATTENDANCE SYSTEM</span>
 
-      <footer className="page-footer">
-        <span>
-          © {new Date().getFullYear()} QR Attendance System
-        </span>
-        <span>SECURE ATTENDANCE MANAGEMENT</span>
-      </footer>
-    </main>
+                <h1>
+                  Attendance
+                  <br />
+                  management,
+                  <br />
+                  <span>simplified.</span>
+                </h1>
+
+                <p>{roleDetails[role].description}</p>
+                <div className="intro-divider" />
+
+                <div className="intro-point">
+                  <span className="point-symbol">01</span>
+                  <span>Role-based access</span>
+                </div>
+
+                <div className="intro-point">
+                  <span className="point-symbol">02</span>
+                  <span>Secure account authentication</span>
+                </div>
+
+                <div className="intro-point">
+                  <span className="point-symbol">03</span>
+                  <span>Email verification for registration</span>
+                </div>
+              </div>
+
+              <p className="intro-footer">QR ATTENDANCE SYSTEM</p>
+            </aside>
+
+            <section className="form-panel">
+              <div className="auth-card">
+                <button
+                  className="back-button"
+                  type="button"
+                  onClick={backToRoles}
+                >
+                  ← Change role
+                </button>
+
+                <div className="selected-role">
+                  <span className={`role-icon role-icon-${role}`}>
+                    {roleDetails[role].icon}
+                  </span>
+                  <span>{roleDetails[role].title}</span>
+                </div>
+
+                {/* LOGIN */}
+                {page === "login" && (
+                  <>
+                    <p className="eyebrow">WELCOME BACK</p>
+                    <h2>Login</h2>
+
+                    <p className="form-description">
+                      Sign in to your {roleDetails[role].title.toLowerCase()}{" "}
+                      account.
+                    </p>
+
+                    {notice && (
+                      <p className="message success-message" role="status">
+                        {notice}
+                      </p>
+                    )}
+
+                    <form onSubmit={handleLogin}>
+                      <div className="form-group">
+                        <label htmlFor="login-email">
+                          Email address
+                        </label>
+
+                        <input
+                          id="login-email"
+                          type="email"
+                          placeholder="you@example.com"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          autoComplete="username"
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="login-password">
+                          Password
+                        </label>
+
+                        <div className="password-field">
+                          <input
+                            id="login-password"
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Enter your password"
+                            value={password}
+                            onChange={(event) =>
+                              setPassword(event.target.value)
+                            }
+                            autoComplete="current-password"
+                            required
+                          />
+
+                          <button
+                            className="text-button"
+                            type="button"
+                            onClick={() =>
+                              setShowPassword((current) => !current)
+                            }
+                          >
+                            {showPassword ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {error && (
+                        <p className="message error-message" role="alert">
+                          {error}
+                        </p>
+                      )}
+
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={loading}
+                      >
+                        {loading ? "Signing in..." : "Login"}
+                        {!loading && <span aria-hidden="true"> →</span>}
+                      </button>
+                    </form>
+
+                    <div className="form-switch">
+                      <span>New user?</span>
+
+                      <button
+                        className="text-button link-button"
+                        type="button"
+                        onClick={() => {
+                          setPassword("");
+                          setError("");
+                          setNotice("");
+                          changePage("register");
+                        }}
+                      >
+                        Register
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* REGISTRATION */}
+                {page === "register" && (
+                  <>
+                    <p className="eyebrow">CREATE ACCOUNT</p>
+                    <h2>Register</h2>
+
+                    <p className="form-description">
+                      {role === "admin"
+                        ? "Enter your details to create an Admin account."
+                        : role === "professor"
+                        ? "Enter the email already registered by Admin. We will send an OTP to verify your email."
+                        : "Student registration has not been connected yet."}
+                    </p>
+
+                    <form onSubmit={handleRegister}>
+                      {role === "admin" && (
+                        <div className="form-group">
+                          <label htmlFor="register-name">
+                            Full name
+                          </label>
+
+                          <input
+                            id="register-name"
+                            type="text"
+                            placeholder="Enter your full name"
+                            value={name}
+                            onChange={(event) => setName(event.target.value)}
+                            autoComplete="name"
+                            required
+                          />
+                        </div>
+                      )}
+
+                      <div className="form-group">
+                        <label htmlFor="register-email">
+                          Email address
+                        </label>
+
+                        <input
+                          id="register-email"
+                          type="email"
+                          placeholder="Enter your registered email"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          autoComplete="email"
+                          required
+                        />
+                      </div>
+
+                      {role === "admin" && (
+                        <div className="form-group">
+                          <label htmlFor="register-password">
+                            Create password
+                          </label>
+
+                          <div className="password-field">
+                            <input
+                              id="register-password"
+                              type={showPassword ? "text" : "password"}
+                              placeholder="At least 8 characters"
+                              value={password}
+                              onChange={(event) =>
+                                setPassword(event.target.value)
+                              }
+                              autoComplete="new-password"
+                              minLength={8}
+                              required
+                            />
+
+                            <button
+                              className="text-button"
+                              type="button"
+                              onClick={() =>
+                                setShowPassword((current) => !current)
+                              }
+                            >
+                              {showPassword ? "Hide" : "Show"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {error && (
+                        <p className="message error-message" role="alert">
+                          {error}
+                        </p>
+                      )}
+
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={loading || role === "student"}
+                      >
+                        {loading ? "Please wait..." : "Send OTP"}
+                        {!loading && <span aria-hidden="true"> →</span>}
+                      </button>
+                    </form>
+
+                    <div className="form-switch">
+                      <span>Already registered?</span>
+
+                      <button
+                        className="text-button link-button"
+                        type="button"
+                        onClick={() => changePage("login")}
+                      >
+                        Login
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* OTP VERIFICATION */}
+                {page === "verify" && (
+                  <>
+                    <div className="otp-icon" aria-hidden="true">
+                      ✉
+                    </div>
+
+                    <p className="eyebrow">EMAIL VERIFICATION</p>
+                    <h2>Verify your email</h2>
+
+                    <p className="form-description">
+                      Enter the 6-digit OTP sent to <strong>{email}</strong>.
+                      The code expires after 3 minutes.
+                    </p>
+
+                    {notice && (
+                      <p className="message success-message" role="status">
+                        {notice}
+                      </p>
+                    )}
+
+                    <form onSubmit={handleVerifyOTP}>
+                      <div className="form-group">
+                        <label htmlFor="otp">
+                          Verification code
+                        </label>
+
+                        <input
+                          id="otp"
+                          className="otp-input"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          placeholder="000000"
+                          value={otp}
+                          onChange={(event) =>
+                            setOtp(
+                              event.target.value.replace(/\D/g, "").slice(0, 6)
+                            )
+                          }
+                          pattern="[0-9]{6}"
+                          maxLength={6}
+                          minLength={6}
+                          required
+                        />
+                      </div>
+
+                      {role === "professor" && (
+                        <div className="form-group">
+                          <label htmlFor="professor-new-password">
+                            Create password
+                          </label>
+
+                          <div className="password-field">
+                            <input
+                              id="professor-new-password"
+                              type={showPassword ? "text" : "password"}
+                              placeholder="At least 8 characters"
+                              value={password}
+                              onChange={(event) =>
+                                setPassword(event.target.value)
+                              }
+                              autoComplete="new-password"
+                              minLength={8}
+                              required
+                            />
+
+                            <button
+                              className="text-button"
+                              type="button"
+                              onClick={() =>
+                                setShowPassword((current) => !current)
+                              }
+                            >
+                              {showPassword ? "Hide" : "Show"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {error && (
+                        <p className="message error-message" role="alert">
+                          {error}
+                        </p>
+                      )}
+
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={
+                          loading ||
+                          otp.length !== 6 ||
+                          (role === "professor" && password.length < 8)
+                        }
+                      >
+                        {loading
+                          ? "Verifying..."
+                          : role === "professor"
+                          ? "Verify OTP and create password"
+                          : "Verify email"}
+                      </button>
+                    </form>
+
+                    <p className="otp-help">
+                      If the OTP expires, return to registration and request
+                      another code.
+                    </p>
+                  </>
+                )}
+
+                <div className="security-note">
+                  <span aria-hidden="true">◆</span>
+                  <span>Secure role-based access</span>
+                </div>
+              </div>
+            </section>
+          </section>
+        )}
+
+        <footer className="page-footer">
+          <span>
+            © {new Date().getFullYear()} QR Attendance System
+          </span>
+          <span>SECURE ATTENDANCE MANAGEMENT</span>
+        </footer>
+      </main>
+    </>
   );
 }
 

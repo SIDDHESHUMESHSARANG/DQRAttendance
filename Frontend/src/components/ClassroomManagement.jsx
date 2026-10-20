@@ -1,10 +1,9 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./ClassroomManagement.css";
 import { getClassrooms } from "../services/classroomService";
 
 const API = "http://localhost:3000/api";
-
 const initialForm = {
     assignedClass: "",
     subject: "",
@@ -57,7 +56,7 @@ const timeToMinutes = (value) => {
 const displayTime = (value = "") => {
     const match = value.match(/^(\d{2}):(\d{2})$/);
 
-    if (!match) return value;
+    if (!match) return value || "—";
 
     let hours = Number(match[1]);
     const period = hours >= 12 ? "PM" : "AM";
@@ -67,7 +66,6 @@ const displayTime = (value = "") => {
     return `${String(hours).padStart(2, "0")}:${match[2]} ${period}`;
 };
 
-// Use local date, not UTC, for Today / Tomorrow / Yesterday.
 const toLocalDateString = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -87,7 +85,9 @@ const getRelativeDate = (offset) => {
 const formatDate = (value) => {
     if (!value) return "—";
 
-    const [year, month, day] = value.split("-").map(Number);
+    const [year, month, day] = String(value).slice(0, 10)
+        .split("-")
+        .map(Number);
 
     if (!year || !month || !day) return value;
 
@@ -95,7 +95,7 @@ const formatDate = (value) => {
         "en-IN",
         {
             day: "2-digit",
-            month: "2-digit",
+            month: "short",
             year: "numeric",
         }
     );
@@ -107,7 +107,6 @@ function ClassroomManagement({ onBack }) {
     const [lectures, setLectures] = useState([]);
     const [form, setForm] = useState(initialForm);
 
-    // Default: show today's lectures, not every lecture.
     const [dateFilter, setDateFilter] = useState("today");
     const [searchDate, setSearchDate] = useState(
         () => getRelativeDate(0)
@@ -119,6 +118,8 @@ function ClassroomManagement({ onBack }) {
     const [cancellingId, setCancellingId] = useState("");
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
+
+    const toastTimerRef = useRef(null);
 
     const token = () => localStorage.getItem("adminToken");
 
@@ -137,9 +138,31 @@ function ClassroomManagement({ onBack }) {
         return data;
     };
 
-    const loadData = async () => {
-        setLoading(true);
+    const showToast = (message, type = "success") => {
+        if (toastTimerRef.current) {
+            clearTimeout(toastTimerRef.current);
+        }
+
+        setNotice("");
         setError("");
+
+        if (type === "error") {
+            setError(message);
+        } else {
+            setNotice(message);
+        }
+
+        toastTimerRef.current = setTimeout(() => {
+            setNotice("");
+            setError("");
+            toastTimerRef.current = null;
+        }, 3500);
+    };
+
+    const loadData = async ({ showLoading = true } = {}) => {
+        if (showLoading) {
+            setLoading(true);
+        }
 
         try {
             const [roomResponse, professorResponse, lectureResponse] =
@@ -168,18 +191,31 @@ function ClassroomManagement({ onBack }) {
             setClassrooms(getList(roomResponse, "classrooms"));
             setProfessors(getList(professorResponse, "professors"));
             setLectures(getList(lectureResponse, "lectures"));
+
+            return true;
         } catch (err) {
-            setError(err.message || "Unable to load data.");
+            setError((previous) =>
+                previous || err.message || "Unable to load data."
+            );
+
+            return false;
         } finally {
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     };
 
     useEffect(() => {
         loadData();
+
+        return () => {
+            if (toastTimerRef.current) {
+                clearTimeout(toastTimerRef.current);
+            }
+        };
     }, []);
 
-    // Keep the chosen date in sync with the selected quick filter.
     useEffect(() => {
         if (dateFilter === "today") {
             setSearchDate(getRelativeDate(0));
@@ -244,19 +280,20 @@ function ClassroomManagement({ onBack }) {
         );
     }, [professors, form.assignedClass, form.subject]);
 
-    // Only show lectures belonging to the selected date.
     const filteredLectures = useMemo(() => {
         if (!searchDate) return [];
 
-        return lectures.filter((lecture) => {
-            if (!lecture.date) return false;
+        return lectures
+            .filter((lecture) => {
+                if (!lecture.date) return false;
 
-            // Backend stores dates at UTC midnight.
-            // Extract the date portion to avoid timezone shifts.
-            const lectureDate = String(lecture.date).slice(0, 10);
-
-            return lectureDate === searchDate;
-        });
+                return String(lecture.date).slice(0, 10) === searchDate;
+            })
+            .sort((a, b) =>
+                String(a.startTime || "").localeCompare(
+                    String(b.startTime || "")
+                )
+            );
     }, [lectures, searchDate]);
 
     const changeField = (event) => {
@@ -298,20 +335,24 @@ function ClassroomManagement({ onBack }) {
         setNotice("");
 
         if (!token()) {
-            setError("Admin session expired. Please log in again.");
+            showToast(
+                "Admin session expired. Please log in again.",
+                "error"
+            );
             return;
         }
 
         if (!form.assignedClass || !form.subject) {
-            setError("Select a class and subject.");
+            showToast("Select a class and subject.", "error");
             return;
         }
 
         if (matchingProfessors.length !== 1) {
-            setError(
+            showToast(
                 matchingProfessors.length === 0
                     ? "No active professor is assigned to this class and subject."
-                    : "Multiple professors match this class and subject. Please correct the assignment."
+                    : "Multiple professors match this class and subject. Please correct the assignment.",
+                "error"
             );
             return;
         }
@@ -319,7 +360,7 @@ function ClassroomManagement({ onBack }) {
         const classroomName = form.classroomName.trim();
 
         if (!classroomName) {
-            setError("Enter a classroom name.");
+            showToast("Enter a classroom name.", "error");
             return;
         }
 
@@ -329,17 +370,20 @@ function ClassroomManagement({ onBack }) {
         const endMinutes = timeToMinutes(form.endTime);
 
         if (startMinutes === null || endMinutes === null) {
-            setError("Enter time in AM/PM format, e.g. 09:00 AM.");
+            showToast(
+                "Enter time in AM/PM format, e.g. 09:00 AM.",
+                "error"
+            );
             return;
         }
 
         if (endMinutes <= startMinutes) {
-            setError("End time must be later than start time.");
+            showToast("End time must be later than start time.", "error");
             return;
         }
 
         if (!form.date) {
-            setError("Select the lecture date.");
+            showToast("Select the lecture date.", "error");
             return;
         }
 
@@ -375,11 +419,16 @@ function ClassroomManagement({ onBack }) {
 
             setShowForm(false);
             setForm(initialForm);
-            setNotice("Lecture created successfully.");
 
-            await loadData();
+            // Refresh the lecture list without replacing the success toast.
+            await loadData({ showLoading: false });
+
+            showToast("Lecture created successfully.", "success");
         } catch (err) {
-            setError(err.message || "Unable to create lecture.");
+            showToast(
+                err.message || "Unable to create lecture.",
+                "error"
+            );
         } finally {
             setSaving(false);
         }
@@ -387,12 +436,15 @@ function ClassroomManagement({ onBack }) {
 
     const handleCancelLecture = async (lecture) => {
         if (!getId(lecture)) {
-            setError("Lecture ID is missing.");
+            showToast("Lecture ID is missing.", "error");
             return;
         }
 
         if (lecture.status !== "scheduled") {
-            setError("Only scheduled lectures can be cancelled.");
+            showToast(
+                "Only scheduled lectures can be cancelled.",
+                "error"
+            );
             return;
         }
 
@@ -425,11 +477,14 @@ function ClassroomManagement({ onBack }) {
                 )
             );
 
-            setNotice("Lecture cancelled successfully.");
+            await loadData({ showLoading: false });
 
-            await loadData();
+            showToast("Lecture cancelled successfully.", "success");
         } catch (err) {
-            setError(err.message || "Unable to cancel lecture.");
+            showToast(
+                err.message || "Unable to cancel lecture.",
+                "error"
+            );
         } finally {
             setCancellingId("");
         }
@@ -477,12 +532,52 @@ function ClassroomManagement({ onBack }) {
 
     return (
         <section className="cm-page">
+            {/* Floating success/error toast */}
+            {(notice || error) && (
+                <div
+                    className={`cm-toast ${
+                        error ? "cm-toast-error" : "cm-toast-success"
+                    }`}
+                    role={error ? "alert" : "status"}
+                    key={error || notice}
+                >
+                    <span className="cm-toast-icon" aria-hidden="true">
+                        {error ? "!" : "✓"}
+                    </span>
+
+                    <div className="cm-toast-content">
+                        <strong>
+                            {error ? "Attention" : "Success"}
+                        </strong>
+                        <span>{error || notice}</span>
+                    </div>
+
+                    <button
+                        type="button"
+                        className="cm-toast-close"
+                        aria-label="Dismiss notification"
+                        onClick={() => {
+                            setError("");
+                            setNotice("");
+
+                            if (toastTimerRef.current) {
+                                clearTimeout(toastTimerRef.current);
+                                toastTimerRef.current = null;
+                            }
+                        }}
+                    >
+                        ×
+                    </button>
+                </div>
+            )}
+
             <header className="cm-page-header">
-                <div>
-                    <p className="cm-eyebrow">ADMIN MANAGEMENT</p>
+                <div className="cm-header-title">
+                    <p className="cm-eyebrow">ADMINISTRATION / ACADEMICS</p>
                     <h2>Classroom Management</h2>
                     <p className="cm-subtitle">
-                        Create and manage lectures from one simple page.
+                        Plan lectures, assign professors, and manage your
+                        classroom schedule.
                     </p>
                 </div>
 
@@ -490,10 +585,10 @@ function ClassroomManagement({ onBack }) {
                     <button
                         type="button"
                         className="cm-button cm-button-secondary"
-                        onClick={loadData}
+                        onClick={() => loadData()}
                         disabled={loading || saving}
                     >
-                        Refresh
+                        ↻ Refresh
                     </button>
 
                     <button
@@ -511,31 +606,21 @@ function ClassroomManagement({ onBack }) {
                             className="cm-button cm-button-secondary"
                             onClick={onBack}
                         >
-                            Back
+                            ← Back
                         </button>
                     )}
                 </div>
             </header>
 
-            {error && (
-                <div className="cm-message cm-error" role="alert">
-                    {error}
-                </div>
-            )}
-
-            {notice && (
-                <div className="cm-message cm-success" role="status">
-                    {notice}
-                </div>
-            )}
-
             {showForm && (
-                <div className="cm-panel">
+                <div className="cm-panel cm-create-panel">
                     <div className="cm-panel-heading">
                         <div>
-                            <h3>Create Lecture</h3>
+                            <p className="cm-eyebrow">NEW SCHEDULE</p>
+                            <h3>Create a Lecture</h3>
                             <p>
-                                Select a class and subject, then fill in the lecture details.
+                                Add the lecture details below. The professor
+                                is matched automatically using the class and subject.
                             </p>
                         </div>
 
@@ -545,7 +630,7 @@ function ClassroomManagement({ onBack }) {
                             onClick={closeForm}
                             disabled={saving}
                         >
-                            Close
+                            Close ×
                         </button>
                     </div>
 
@@ -561,7 +646,6 @@ function ClassroomManagement({ onBack }) {
                                     required
                                 >
                                     <option value="">Select class</option>
-
                                     {availableClasses.map((item) => (
                                         <option key={item} value={item}>
                                             {item}
@@ -581,7 +665,6 @@ function ClassroomManagement({ onBack }) {
                                     required
                                 >
                                     <option value="">Select subject</option>
-
                                     {availableSubjects.map((item) => (
                                         <option key={item} value={item}>
                                             {item}
@@ -593,26 +676,32 @@ function ClassroomManagement({ onBack }) {
 
                         <div className="cm-field">
                             <label>Assigned Professor</label>
-
                             <div className="cm-professor-preview">
-                                {matchingProfessors.length === 1
-                                    ? matchingProfessors[0].name
-                                    : matchingProfessors.length > 1
-                                        ? "Multiple matching professors"
-                                        : "Select a class and subject"}
+                                <span aria-hidden="true">♙</span>
+                                <span>
+                                    {matchingProfessors.length === 1
+                                        ? matchingProfessors[0].name
+                                        : matchingProfessors.length > 1
+                                            ? "Multiple matching professors"
+                                            : "Select a class and subject"}
+                                </span>
+                                {matchingProfessors.length === 1 && (
+                                    <span className="cm-assigned-label">
+                                        Assigned
+                                    </span>
+                                )}
                             </div>
                         </div>
 
                         <div className="cm-field">
                             <label htmlFor="cm-classroom">Classroom *</label>
-
                             <input
                                 id="cm-classroom"
                                 name="classroomName"
                                 list="cm-classroom-options"
                                 value={form.classroomName}
                                 onChange={changeField}
-                                placeholder="Type a classroom name"
+                                placeholder="e.g. Lab 02 or Room 105"
                                 autoComplete="off"
                                 maxLength={150}
                                 required
@@ -633,14 +722,13 @@ function ClassroomManagement({ onBack }) {
                             </datalist>
 
                             <small>
-                                Enter any classroom name. Selecting an existing suggestion is optional.
+                                You can type a classroom name or choose an existing suggestion.
                             </small>
                         </div>
 
-                        <div className="cm-form-grid">
+                        <div className="cm-form-grid cm-time-grid">
                             <div className="cm-field">
-                                <label htmlFor="cm-date">Date *</label>
-
+                                <label htmlFor="cm-date">Lecture Date *</label>
                                 <input
                                     id="cm-date"
                                     name="date"
@@ -653,7 +741,6 @@ function ClassroomManagement({ onBack }) {
 
                             <div className="cm-field">
                                 <label htmlFor="cm-start">Start Time *</label>
-
                                 <input
                                     id="cm-start"
                                     name="startTime"
@@ -668,7 +755,6 @@ function ClassroomManagement({ onBack }) {
 
                             <div className="cm-field">
                                 <label htmlFor="cm-end">End Time *</label>
-
                                 <input
                                     id="cm-end"
                                     name="endTime"
@@ -697,64 +783,43 @@ function ClassroomManagement({ onBack }) {
                                 className="cm-button cm-button-primary"
                                 disabled={saving || loading}
                             >
-                                {saving ? "Creating..." : "Create Lecture"}
+                                {saving ? "Creating lecture..." : "✓ Create Lecture"}
                             </button>
                         </div>
                     </form>
                 </div>
             )}
 
-            <div className="cm-panel">
+            <div className="cm-panel cm-schedule-panel">
                 <div className="cm-panel-heading">
                     <div>
-                        <h3>Lecture Management</h3>
+                        <p className="cm-eyebrow">LECTURE OVERVIEW</p>
+                        <h3>Lecture Schedule</h3>
                         <p>
-                            Select a date to view only the lectures scheduled for that day.
+                            Browse scheduled lectures by date and review
+                            their current status.
                         </p>
                     </div>
                 </div>
 
-                {/* Date filter options */}
                 <div className="cm-date-filter">
-                    <button
-                        type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "today" ? "active" : ""
-                        }`}
-                        onClick={() => setDateFilter("today")}
-                    >
-                        Today
-                    </button>
-
-                    <button
-                        type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "tomorrow" ? "active" : ""
-                        }`}
-                        onClick={() => setDateFilter("tomorrow")}
-                    >
-                        Tomorrow
-                    </button>
-
-                    <button
-                        type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "yesterday" ? "active" : ""
-                        }`}
-                        onClick={() => setDateFilter("yesterday")}
-                    >
-                        Yesterday
-                    </button>
-
-                    <button
-                        type="button"
-                        className={`cm-date-filter-button ${
-                            dateFilter === "specific" ? "active" : ""
-                        }`}
-                        onClick={() => setDateFilter("specific")}
-                    >
-                        Specific Date
-                    </button>
+                    {[
+                        ["today", "Today"],
+                        ["tomorrow", "Tomorrow"],
+                        ["yesterday", "Yesterday"],
+                        ["specific", "Choose Date"],
+                    ].map(([value, label]) => (
+                        <button
+                            type="button"
+                            key={value}
+                            className={`cm-date-filter-button ${
+                                dateFilter === value ? "active" : ""
+                            }`}
+                            onClick={() => setDateFilter(value)}
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
 
                 {dateFilter === "specific" && (
@@ -773,10 +838,7 @@ function ClassroomManagement({ onBack }) {
                         <button
                             type="button"
                             className="cm-button cm-button-secondary"
-                            onClick={() => {
-                                setSearchDate(getRelativeDate(0));
-                                setDateFilter("today");
-                            }}
+                            onClick={() => setDateFilter("today")}
                         >
                             Back to Today
                         </button>
@@ -784,9 +846,12 @@ function ClassroomManagement({ onBack }) {
                 )}
 
                 <div className="cm-lecture-results-heading">
-                    <h3>
-                        {selectedDateLabel}
-                    </h3>
+                    <div>
+                        <h3>{selectedDateLabel}</h3>
+                        <p className="cm-selected-date">
+                            {formatDate(searchDate)}
+                        </p>
+                    </div>
 
                     <span className="cm-lecture-count">
                         {filteredLectures.length}{" "}
@@ -794,17 +859,27 @@ function ClassroomManagement({ onBack }) {
                     </span>
                 </div>
 
-                {searchDate && (
-                    <p className="cm-selected-date">
-                        Date: {formatDate(searchDate)}
-                    </p>
-                )}
-
                 {loading ? (
-                    <div className="cm-empty">Loading lectures...</div>
+                    <div className="cm-empty">
+                        <span className="cm-empty-icon">◷</span>
+                        <h3>Loading schedule...</h3>
+                        <p>Please wait while lecture details are fetched.</p>
+                    </div>
                 ) : filteredLectures.length === 0 ? (
                     <div className="cm-empty">
-                        No lectures found for {formatDate(searchDate)}.
+                        <span className="cm-empty-icon">▤</span>
+                        <h3>No lectures scheduled</h3>
+                        <p>
+                            No lectures were found for {formatDate(searchDate)}.
+                            Create a lecture to add it to the schedule.
+                        </p>
+                        <button
+                            type="button"
+                            className="cm-button cm-button-primary"
+                            onClick={openForm}
+                        >
+                            + Create Lecture
+                        </button>
                     </div>
                 ) : (
                     <div className="cm-lecture-grid">
@@ -814,12 +889,13 @@ function ClassroomManagement({ onBack }) {
                                 key={getId(lecture)}
                             >
                                 <div className="cm-lecture-card-header">
-                                    <div>
-                                        <h3>
-                                            {lecture.subject} — {lecture.assignedClass}
-                                        </h3>
-
+                                    <div className="cm-lecture-title-wrap">
+                                        <span className="cm-card-kicker">
+                                            {lecture.assignedClass || "Class"}
+                                        </span>
+                                        <h3>{lecture.subject || "Untitled Subject"}</h3>
                                         <p>
+                                            <span aria-hidden="true">♙ </span>
                                             {lecture.professorName || "Assigned professor"}
                                         </p>
                                     </div>
@@ -827,32 +903,56 @@ function ClassroomManagement({ onBack }) {
                                     <span
                                         className={`cm-status cm-status-${lecture.status || "scheduled"}`}
                                     >
+                                        <span className="cm-status-dot" />
                                         {lecture.status || "scheduled"}
                                     </span>
                                 </div>
 
-                                <div className="cm-lecture-detail">
-                                    <strong>Classroom:</strong>{" "}
-                                    {classroomNameFor(lecture)}
-                                </div>
+                                <div className="cm-lecture-card-divider" />
 
-                                <div className="cm-lecture-detail">
-                                    <strong>Date:</strong>{" "}
-                                    {formatDate(
-                                        lecture.date
-                                            ? String(lecture.date).slice(0, 10)
-                                            : ""
-                                    )}
-                                </div>
+                                <div className="cm-card-info-grid">
+                                    <div className="cm-card-info">
+                                        <span className="cm-info-icon">⌖</span>
+                                        <div>
+                                            <small>Classroom</small>
+                                            <strong>{classroomNameFor(lecture)}</strong>
+                                        </div>
+                                    </div>
 
-                                <div className="cm-lecture-detail">
-                                    <strong>Time:</strong>{" "}
-                                    {displayTime(lecture.startTime)} –{" "}
-                                    {displayTime(lecture.endTime)}
+                                    <div className="cm-card-info">
+                                        <span className="cm-info-icon">▦</span>
+                                        <div>
+                                            <small>Date</small>
+                                            <strong>
+                                                {formatDate(
+                                                    lecture.date
+                                                        ? String(lecture.date).slice(0, 10)
+                                                        : ""
+                                                )}
+                                            </strong>
+                                        </div>
+                                    </div>
+
+                                    <div className="cm-card-info cm-card-time">
+                                        <span className="cm-info-icon">◷</span>
+                                        <div>
+                                            <small>Lecture Time</small>
+                                            <strong>
+                                                {displayTime(lecture.startTime)}
+                                                {" – "}
+                                                {displayTime(lecture.endTime)}
+                                            </strong>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {lecture.status === "scheduled" && (
-                                    <div className="cm-form-actions">
+                                    <div className="cm-lecture-card-footer">
+                                        <span className="cm-upcoming-label">
+                                            <span className="cm-status-dot" />
+                                            Scheduled lecture
+                                        </span>
+
                                         <button
                                             type="button"
                                             className="cm-button cm-button-cancel"
