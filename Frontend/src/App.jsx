@@ -5,6 +5,7 @@ import StudentManagement from "./components/StudentManagement";
 import ProfessorManagement from "./components/ProfessorManagement";
 import ClassroomManagement from "./components/ClassroomManagement";
 import AdminAttendance from "./components/AdminAttendance";
+import AdminBiDashboard from "./components/AdminBiDashboard";
 import ThemeToggle from "./components/ThemeToggle";
 import Professor from "./Professor.jsx";
 import StudentPortal from "./StudentPortal.jsx";
@@ -766,6 +767,7 @@ function App() {
       professors: "Professors",
       classrooms: "Classrooms",
       attendance: "Attendance",
+      analytics: "BI Analytics",
     };
 
     return (
@@ -864,6 +866,17 @@ function App() {
                 <span className="nav-symbol">✓</span>
                 <span>Attendance</span>
               </button>
+
+              <button
+                type="button"
+                className={`dashboard-nav-item ${
+                  activeSection === "analytics" ? "active" : ""
+                }`}
+                onClick={() => openSection("analytics")}
+              >
+                <span className="nav-symbol">▥</span>
+                <span>BI Analytics</span>
+              </button>
             </nav>
 
             <div className="sidebar-bottom">
@@ -955,6 +968,11 @@ function App() {
                 />
               ) : activeSection === "attendance" ? (
                 <AdminAttendance
+                  onBack={() => openSection("overview")}
+                />
+              ) : activeSection === "analytics" ? (
+                <AdminBiDashboard
+                  admin={admin}
                   onBack={() => openSection("overview")}
                 />
               ) : activeSection === "overview" ? (
